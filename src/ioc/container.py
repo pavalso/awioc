@@ -105,8 +105,8 @@ class ContainerInterface:
     def provided_logger(self) -> Logger:
         return self._container.logger()
 
-    @staticmethod
-    def __init_component(component: Component) -> Internals:
+    @classmethod
+    def __init_component(cls, component: Component) -> Internals:
         assert hasattr(component, "__metadata__")
         assert "_internals" not in component.__metadata__
 
@@ -114,7 +114,8 @@ class ContainerInterface:
         component.__metadata__["_internals"] = _internals
 
         for req in component_requires(component):
-            ContainerInterface.__init_component(req)
+            if not cls.__component_initialized(req):
+                cls.__init_component(req)
             req.__metadata__["_internals"].required_by.add(component)
 
         return _internals
@@ -128,6 +129,11 @@ class ContainerInterface:
             req.__metadata__["_internals"].required_by.discard(component)
 
         component.__metadata__["_internals"] = None
+
+    @staticmethod
+    def __component_initialized(component: Component) -> bool:
+        assert hasattr(component, "__metadata__")
+        return "_internals" in component.__metadata__
 
     def register_libraries(
             self,
