@@ -81,11 +81,11 @@ class ContainerInterface:
         return self._libs_map[type_.__qualname__]()
 
     @overload
-    def provided_config(self, model: type[_Model_type]) -> _Model_type:
+    def provided_config(self, model: type[_Model_type]) -> _Model_type: # pragma: no cover
         ...
 
     @overload
-    def provided_config(self, model: None = None) -> Settings:
+    def provided_config(self, model: None = None) -> Settings: # pragma: no cover
         ...
 
     def provided_config(self, model: Optional[type[_Model_type]] = None):

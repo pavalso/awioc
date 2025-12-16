@@ -23,9 +23,7 @@ def get_library(type_: str) -> _Lib_type:  # pragma: no cover
 
 
 def get_library(type_: Union[type[_Lib_type], str]) -> _Lib_type:
-    if isinstance(type_, str):
-        return Provide["libs", provided().get.call(type_).call()]
-    return Provide["libs", provided().get.call(type_.__qualname__).call()]
+    return Provide["api", provided().provided_lib.call(type_).call()]
 
 
 @overload
