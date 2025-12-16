@@ -1,9 +1,9 @@
 from types import ModuleType
 from typing import Optional, Iterable
 
-from src.ioc.components.protocols import Component
-from src.ioc.config.registry import register_configuration
-from src.ioc.container import ContainerInterface
+from ..components.protocols import Component
+from ..config.registry import register_configuration
+from ..container import ContainerInterface
 
 
 def inject_dependencies(

@@ -5,7 +5,7 @@ This module provides a clean public surface for the IOC framework.
 Consumers should import from here for stable API access.
 """
 
-from src.ioc.api import (
+from .api import (
     # Bootstrap
     initialize_ioc_app,
     create_container,

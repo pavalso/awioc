@@ -5,31 +5,31 @@ This module exports all public interfaces for consumers to use.
 Import only from this module for stable API access.
 """
 
-from src.ioc.container import ContainerInterface, AppContainer
-from src.ioc.components.lifecycle import (
+from .container import ContainerInterface, AppContainer
+from .components.lifecycle import (
     initialize_components,
     shutdown_components,
     register_plugin,
     unregister_plugin,
 )
-from src.ioc.components.protocols import (
+from .components.protocols import (
     Component,
     AppComponent,
     PluginComponent,
     LibraryComponent,
 )
-from src.ioc.components.metadata import (
+from .components.metadata import (
     ComponentMetadata,
     AppMetadata,
     ComponentTypes,
 )
-from src.ioc.components.registry import (
+from .components.registry import (
     as_component,
     component_requires,
     component_internals,
     component_str,
 )
-from src.ioc.di.providers import (
+from .di.providers import (
     get_library,
     get_config,
     get_container_api,
@@ -37,20 +37,20 @@ from src.ioc.di.providers import (
     get_app,
     get_logger,
 )
-from src.ioc.di.wiring import wire
-from src.ioc.config.base import Settings
-from src.ioc.config.registry import register_configuration, clear_configurations
-from src.ioc.config.loaders import load_file
-from src.ioc.config.models import IOCComponentsDefinition, IOCBaseConfig
-from src.ioc.bootstrap import (
+from .di.wiring import wire
+from .config.base import Settings
+from .config.registry import register_configuration, clear_configurations
+from .config.loaders import load_file
+from .config.models import IOCComponentsDefinition, IOCBaseConfig
+from .bootstrap import (
     initialize_ioc_app,
     create_container,
     compile_ioc_app,
     reconfigure_ioc_app,
     reload_configuration,
 )
-from src.ioc.loader.module_loader import compile_component
-from src.ioc.logging.setup import setup_logging
+from .loader.module_loader import compile_component
+from .logging.setup import setup_logging
 
 __all__ = [
     # Container

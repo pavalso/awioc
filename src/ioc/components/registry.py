@@ -1,7 +1,7 @@
 from typing import Any
 
-from src.ioc.components.metadata import Internals
-from src.ioc.components.protocols import Component
+from .metadata import Internals
+from .protocols import Component
 
 
 def as_component(obj: Any) -> Component:

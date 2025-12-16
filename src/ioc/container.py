@@ -4,15 +4,15 @@ from typing import TypeVar, Optional, overload
 import pydantic
 from dependency_injector import containers, providers
 
-from src.ioc.components.metadata import ComponentTypes, Internals
-from src.ioc.components.protocols import (
+from .components.metadata import ComponentTypes, Internals
+from .components.protocols import (
     Component,
     AppComponent,
     PluginComponent,
     LibraryComponent,
 )
-from src.ioc.components.registry import component_requires, component_internals
-from src.ioc.config.base import Settings
+from .components.registry import component_requires, component_internals
+from .config.base import Settings
 
 _Lib_type = TypeVar("_Lib_type")
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)

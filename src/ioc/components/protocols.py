@@ -1,6 +1,6 @@
 from typing import Protocol, runtime_checkable, Coroutine, Any, Optional, Union, Callable
 
-from src.ioc.components.metadata import ComponentMetadata, AppMetadata
+from .metadata import ComponentMetadata, AppMetadata
 
 
 @runtime_checkable

@@ -1,4 +1,4 @@
-from src.ioc.di.providers import (
+from .providers import (
     get_library,
     get_config,
     get_container_api,
@@ -6,7 +6,7 @@ from src.ioc.di.providers import (
     get_app,
     get_logger,
 )
-from src.ioc.di.wiring import wire, inject_dependencies
+from .wiring import wire, inject_dependencies
 
 __all__ = [
     "get_library",

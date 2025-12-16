@@ -3,8 +3,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from src.ioc.components.protocols import Component
-from src.ioc.components.registry import as_component
+from ..components.protocols import Component
+from ..components.registry import as_component
 
 
 def compile_component(name: Path) -> Component:

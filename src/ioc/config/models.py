@@ -3,8 +3,8 @@ from typing import Optional
 
 import pydantic
 
-from src.ioc.config.base import Settings
-from src.ioc.utils import expanded_path
+from .base import Settings
+from ..utils import expanded_path
 
 
 class IOCComponentsDefinition(pydantic.BaseModel):

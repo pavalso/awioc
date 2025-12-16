@@ -1,11 +1,11 @@
-from src.ioc.config.base import Settings
-from src.ioc.config.registry import (
+from .base import Settings
+from .registry import (
     _CONFIGURATIONS,
     register_configuration,
     clear_configurations,
 )
-from src.ioc.config.loaders import load_file
-from src.ioc.config.models import IOCComponentsDefinition, IOCBaseConfig
+from .loaders import load_file
+from .models import IOCComponentsDefinition, IOCBaseConfig
 
 __all__ = [
     "Settings",

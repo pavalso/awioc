@@ -4,7 +4,7 @@ import pydantic
 import pydantic_settings as settings
 from cachetools import cached
 
-from src.ioc.config.registry import _CONFIGURATIONS
+from .registry import _CONFIGURATIONS
 
 _P_type = TypeVar("_P_type", bound=pydantic.BaseModel)
 _S_type = TypeVar("_S_type", bound=type["Settings"])

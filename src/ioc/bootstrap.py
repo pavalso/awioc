@@ -3,15 +3,15 @@ from typing import Iterable
 
 from dependency_injector import providers
 
-from src.ioc.components.protocols import Component
-from src.ioc.config.base import Settings
-from src.ioc.config.loaders import load_file
-from src.ioc.config.models import IOCComponentsDefinition, IOCBaseConfig
-from src.ioc.container import AppContainer, ContainerInterface
-from src.ioc.di.wiring import wire, inject_dependencies
-from src.ioc.loader.module_loader import compile_component
-from src.ioc.logging.setup import setup_logging
-from src.ioc.utils import deep_update
+from .components.protocols import Component
+from .config.base import Settings
+from .config.loaders import load_file
+from .config.models import IOCComponentsDefinition, IOCBaseConfig
+from .container import AppContainer, ContainerInterface
+from .di.wiring import wire, inject_dependencies
+from .loader.module_loader import compile_component
+from .logging.setup import setup_logging
+from .utils import deep_update
 
 
 def create_container(

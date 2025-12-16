@@ -1,23 +1,23 @@
-from src.ioc.components.metadata import (
+from .metadata import (
     ComponentTypes,
     Internals,
     ComponentMetadata,
     AppMetadata,
     ComponentMetadataType,
 )
-from src.ioc.components.protocols import (
+from .protocols import (
     Component,
     AppComponent,
     PluginComponent,
     LibraryComponent,
 )
-from src.ioc.components.registry import (
+from .registry import (
     as_component,
     component_requires,
     component_internals,
     component_str,
 )
-from src.ioc.components.lifecycle import (
+from .lifecycle import (
     initialize_components,
     shutdown_components,
     register_plugin,

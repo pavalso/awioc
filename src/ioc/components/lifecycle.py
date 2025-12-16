@@ -4,11 +4,11 @@ import logging
 
 from typing import TYPE_CHECKING
 
-from src.ioc.components.protocols import Component, PluginComponent
-from src.ioc.components.registry import component_requires, component_internals, component_str
+from .protocols import Component, PluginComponent
+from .registry import component_requires, component_internals, component_str
 
 if TYPE_CHECKING:
-    from src.ioc.container import ContainerInterface
+    from ..container import ContainerInterface
 
 logger = logging.getLogger(__name__) # TODO: remove global logger usage
 

@@ -5,8 +5,8 @@ from typing import TypeVar, Optional, Union, overload
 import pydantic
 from dependency_injector.wiring import Provide, provided
 
-from src.ioc.components.protocols import AppComponent
-from src.ioc.container import AppContainer, ContainerInterface
+from ..components.protocols import AppComponent
+from ..container import AppContainer, ContainerInterface
 
 _Lib_type = TypeVar("_Lib_type")
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)

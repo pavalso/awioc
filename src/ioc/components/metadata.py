@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, TypedDict, Optional, Union
 import pydantic
 
 if TYPE_CHECKING:
-    from src.ioc.components.protocols import Component
-    from src.ioc.config.base import Settings
+    from .protocols import Component
+    from ..config.base import Settings
 
 
 class ComponentTypes(Enum):
