@@ -34,7 +34,6 @@ async def initialize_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
-        _internal.is_initializing = True
         if any(not component_internals(required).is_initialized
                for required in component_requires(comp)
                if required not in components
@@ -47,17 +46,23 @@ async def initialize_components(
             logger.debug("Initializing component: %s v%s",
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
-            if await comp.initialize() is False:
-                logger.debug("Component initialization aborted: %s v%s",
-                             comp.__metadata__['name'],
-                             comp.__metadata__['version'])
-                return
+            _internal.is_initializing = True
+            try:
+                if await comp.initialize() is False:
+                    logger.debug("Component initialization aborted: %s v%s",
+                                 comp.__metadata__['name'],
+                                 comp.__metadata__['version'])
+                    return
+            finally:
+                _internal.is_initializing = False
         else:
             logger.debug("Component has no initialize method: %s v%s",
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
-        _internal.is_initializing = False
         _internal.is_initialized = True
+        logger.debug("Component initialized: %s v%s",
+                     comp.__metadata__['name'],
+                     comp.__metadata__['version'])
 
     _ret = await asyncio.gather(
         *map(__initialize, components),
@@ -95,6 +100,11 @@ async def shutdown_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
+        if _internal.is_shutting_down:
+            logger.debug("Component is already shutting down: %s v%s",
+                         comp.__metadata__['name'],
+                         comp.__metadata__['version'])
+            return
         if any(component_internals(required).is_initialized
                for required in _internal.required_by
                if required not in components
@@ -107,12 +117,19 @@ async def shutdown_components(
             logger.debug("Shutting down component: %s v%s",
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
-            await comp.shutdown()
+            _internal.is_shutting_down = True
+            try:
+                await comp.shutdown()
+            finally:
+                _internal.is_shutting_down = False
         else:
             logger.debug("Component has no shutdown method: %s v%s",
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
         _internal.is_initialized = False
+        logger.debug("Component shut down: %s v%s",
+                     comp.__metadata__['name'],
+                     comp.__metadata__['version'])
 
     _ret = await asyncio.gather(
         *map(__shutdown, components),
