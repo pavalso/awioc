@@ -4,6 +4,7 @@ from typing import TypeVar, Optional, overload
 import pydantic
 from dependency_injector import containers, providers
 
+from .config.models import IOCBaseConfig
 from .components.metadata import ComponentTypes, Internals
 from .components.protocols import (
     Component,
@@ -57,11 +58,10 @@ class ContainerInterface:
     @property
     def ioc_config_model(self):
         app = self.provided_app()
-        meta = app.__metadata__
-        if "ioc_config" in meta and meta["ioc_config"] is not None:
-            ioc_config = meta["ioc_config"]
-            assert isinstance(ioc_config, Settings)
-            return ioc_config
+        internals = component_internals(app)
+        if internals.ioc_config is not None:
+            assert isinstance(internals.ioc_config, IOCBaseConfig)
+            return internals.ioc_config
         raise ValueError("IOC configuration model is not defined in the app metadata.")
 
     @property

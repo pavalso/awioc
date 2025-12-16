@@ -57,7 +57,6 @@ class TestReconfigureIOCApp:
                 "version": "1.0.0",
                 "requires": set(),
                 "base_config": Settings,
-                "ioc_config": ioc_config,
                 "wire": False
             }
 
@@ -67,10 +66,15 @@ class TestReconfigureIOCApp:
             async def shutdown(self):
                 pass
 
-        interface.set_app(MockApp())
+        app = MockApp()
+        interface.set_app(app)
+
+        # Set ioc_config on _internals after set_app (which creates _internals)
+        app.__metadata__["_internals"].ioc_config = ioc_config
+
         interface.raw_container().wire = MagicMock()
 
-        reconfigure_ioc_app(interface, components=[MockApp()])
+        reconfigure_ioc_app(interface, components=[app])
 
         # Config should be set
         assert interface.raw_container().config() is not None

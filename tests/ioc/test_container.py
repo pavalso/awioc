@@ -230,12 +230,13 @@ class TestContainerInterface:
 
     def test_ioc_config_model(self, interface):
         """Test ioc_config_model property."""
+        from src.ioc.config.models import IOCBaseConfig
+
         class AppWithIOCConfig:
             __metadata__ = {
                 "name": "app",
                 "version": "1.0.0",
                 "requires": set(),
-                "ioc_config": Settings()
             }
 
             async def initialize(self):
@@ -244,10 +245,14 @@ class TestContainerInterface:
             async def shutdown(self):
                 pass
 
-        interface.set_app(AppWithIOCConfig())
+        app = AppWithIOCConfig()
+        interface.set_app(app)
+
+        # Set ioc_config on _internals after set_app (which creates _internals)
+        app.__metadata__["_internals"].ioc_config = IOCBaseConfig()
 
         config = interface.ioc_config_model
-        assert isinstance(config, Settings)
+        assert isinstance(config, IOCBaseConfig)
 
     def test_ioc_config_model_raises_when_not_defined(self, interface, mock_app):
         """Test ioc_config_model raises when not defined."""
