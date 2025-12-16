@@ -24,7 +24,7 @@ from typing import (
     Any,
     Union,
     Iterable,
-    Optional, Literal,
+    Optional
 )
 
 import pydantic_settings as settings
@@ -105,7 +105,10 @@ def register_configuration(
         prefix = prefix.replace(" ", "_")
 
         if prefix in _CONFIGURATIONS:
-            return _CONFIGURATIONS[prefix]
+            raise ValueError(
+                f"Configuration prefix collision: '{prefix}' "
+                f"already registered for {_CONFIGURATIONS[prefix]}"
+            )
 
         _CONFIGURATIONS[prefix] = model
 
@@ -177,20 +180,13 @@ class PluginComponent(Component, Protocol): ...
 class LibraryComponent(Component, Protocol): ...
 
 class AppContainer(containers.DeclarativeContainer):
-    """Dependency injection container for the application."""
+    __self__ = providers.Self()
+    api = providers.Object(None)
 
-    __self__: providers.Self["AppContainer"]
-    api = providers.Provider["ContainerInterface"]()
+    config = providers.Object(None)
+    logger = providers.Object(None)
 
-    wiring_config: containers.WiringConfiguration
-
-    config = providers.Singleton(Settings)
-
-    components = providers.Provider[
-        dict[str, providers.Provider[Component]]
-    ]()
-
-    logger = providers.Singleton(Logger, "app")
+    components = providers.Singleton(dict)
 
 class ContainerInterface:
     """Interface for interacting with the AppContainer."""
@@ -198,9 +194,9 @@ class ContainerInterface:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
 
-        self._app_component: Optional[AppComponent] = None
-        self._libs_map: dict[str, LibraryComponent] = {}
-        self._plugins_map: dict[str, PluginComponent] = {}
+        self._app_component: Optional[Component] = None
+        self._libs_map: dict[str, providers.Provider[LibraryComponent]] = {}
+        self._plugins_map: dict[str, providers.Provider[PluginComponent]] = {}
 
         self._monotonic_id = 0
 
@@ -237,29 +233,30 @@ class ContainerInterface:
     def raw_container(self) -> AppContainer:
         return self._container
 
-    def provided_libs(self) -> list[LibraryComponent]:
-        return list(self._libs_map.values())
+    def provided_libs(self) -> set[LibraryComponent]:
+        return set(lib() for lib in self._libs_map.values())
 
     def provided_lib(self, type_: type[_Lib_type]) -> _Lib_type:
-        if type_.__qualname__ not in self._libs_map:
-            raise ValueError(f"Library of type {type_.__qualname__} not found in container.")
-        return self._libs_map[type_.__qualname__]
+        return self._libs_map[type_.__qualname__]()
 
     @overload
     def provided_config(self, model: type[_Model_type]) -> _Model_type: ...
     @overload
     def provided_config(self, model: None = None) -> Settings: ...
     def provided_config(self, model: Optional[type[_Model_type]] = None):
+        cfg = self._container.config()
         if model is None:
-            return self._container.config()
-        return getattr(self._container.config(), model.__name__).provided
+            return cfg
+        return getattr(cfg, model.__name__)
 
     def provided_app(self) -> AppComponent:
+        if self._app_component is None:
+            raise RuntimeError("App component not set")
         return self._app_component
 
     def provided_plugins(self) -> set[PluginComponent]:
         # TODO: Implement this
-        return set()
+        return set(plugin() for plugin in self._plugins_map.values())
 
     def provided_logger(self) -> Logger:
         return self._container.logger()
@@ -267,15 +264,18 @@ class ContainerInterface:
     @staticmethod
     def __init_component(
             component: Component
-    ):
+    ) -> _Internals:
         assert hasattr(component, "__metadata__")
         assert "_internals" not in component.__metadata__
 
-        component.__metadata__["_internals"] = _Internals()
+        _internals = _Internals()
+        component.__metadata__["_internals"] = _internals
 
         for req in component_requires(component):
             ContainerInterface.__init_component(req)
             req.__metadata__["_internals"].required_by.add(component)
+
+        return _internals
 
     @staticmethod
     def __deinit_component(
@@ -291,25 +291,17 @@ class ContainerInterface:
 
     def register_libraries(
             self,
-            *libs: tuple[Union[type[_Lib_type], str], LibraryComponent]
+            *libs: tuple[str | type, LibraryComponent]
     ) -> None:
-        container_libs = self._libs_map
+        for key, lib in libs:
+            lib_id = key if isinstance(key, str) else key.__qualname__
 
-        assert libs
+            self.__init_component(lib)
+            component_internals(lib).type = ComponentTypes.LIBRARY
 
-        libs = [
-            (_id_or_type if isinstance(_id_or_type, str) else _id_or_type.__qualname__, implementation)
-            for _id_or_type, implementation in libs
-        ]
-
-        assert container_libs.keys().isdisjoint({id_ for id_, _ in libs})
-        for id_, implementation in libs:
-            self.__init_component(implementation)
-
-            if id_ in container_libs:
-                container_libs[id_].override(providers.Object(implementation))
-            else:
-                container_libs[id_] = providers.Object(implementation)
+            provider = providers.Object(lib)
+            self._libs_map[lib_id] = provider
+            self._container.components()[lib_id] = provider
 
     def unregister_libraries(
             self,
@@ -338,14 +330,10 @@ class ContainerInterface:
             self.__deinit_component(plugin)
             self._container.plugins().discard(plugin)
 
-    def set_app(
-            self,
-            app: AppComponent
-    ) -> None:
-        assert app is not None, "App component cannot be None."
-        assert app in self._container.components().values()
+    def set_app(self, app: AppComponent) -> None:
         self.__init_component(app)
         self._app_component = app
+        self._container.components()[app.__metadata__["name"]] = providers.Object(app)
 
     def set_logger(
             self,
@@ -403,15 +391,6 @@ def get_logger(*name: str) -> Logger:
         name = ".".join(name)
 
     return Provide["logger", provided().getChild.call(name)]
-
-def component_type(component: Component) -> str:
-    """
-    Get the type of a component as a string.
-
-    :param component: The component to analyze.
-    :return: The type of the component ("app", "plugin", "library", or "component").
-    """
-    return component_internals(component).type
 
 def component_requires(*components: Component, recursive: bool = False) -> set[Component]:
     """
@@ -612,6 +591,9 @@ def compile_component(name: Path):
     else:
         raise FileNotFoundError(f"Component not found: {name}")
 
+    if module_name in sys.modules:
+        return as_component(sys.modules[module_name])
+
     # Create spec
     spec = importlib.util.spec_from_file_location(
         module_name,
@@ -725,7 +707,7 @@ def wire(
     :return: The main application instance.
     """
     if components is None:
-        components = api_container.components.values()
+        components = api_container.components
 
     wirings = {__name__}
 
@@ -819,6 +801,12 @@ async def unregister_plugin(
                        caller_frame.filename,
                        caller_frame.lineno)
         return
+
+    if component_internals(plugin).required_by:
+        raise RuntimeError(
+            f"Cannot unregister plugin {component_str(plugin)}; "
+            "it is still required by other components"
+        )
 
     if component_internals(plugin).is_initialized:
         await shutdown_components(plugin)
