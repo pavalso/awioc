@@ -23,7 +23,7 @@ def get_library(type_: str) -> _Lib_type:  # pragma: no cover
 
 
 def get_library(type_: Union[type[_Lib_type], str]) -> _Lib_type:
-    return Provide["api", provided().provided_lib.call(type_).call()]
+    return Provide["api", provided().provided_lib.call(type_)]
 
 
 @overload
