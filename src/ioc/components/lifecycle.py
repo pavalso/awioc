@@ -47,7 +47,7 @@ async def initialize_components(
             logger.debug("Initializing component: %s v%s",
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
-            if not await comp.initialize():
+            if await comp.initialize() is False:
                 logger.debug("Component initialization aborted: %s v%s",
                              comp.__metadata__['name'],
                              comp.__metadata__['version'])
