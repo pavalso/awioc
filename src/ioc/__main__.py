@@ -80,9 +80,28 @@ async def run():
 
     compile_ioc_app(api)
 
-    await initialize_components(app)
-
     try:
+        await initialize_components(app)
+
+        exceptions = await initialize_components(
+            *api.provided_libs(),
+            return_exceptions=True
+        )
+
+        if exceptions:
+            logger.error("Error during library initialization",
+                         exc_info=ExceptionGroup("Initialization Errors", exceptions))
+            return  # Abort initialization on library errors
+
+        exceptions = await initialize_components(
+            *api.provided_plugins(),
+            return_exceptions=True
+        )
+
+        if exceptions:
+            logger.error("Error during plugin initialization",
+                         exc_info=ExceptionGroup("Initialization Errors", exceptions))
+
         await wait_for_components(app)
     finally:
         await shutdown_components(app)
