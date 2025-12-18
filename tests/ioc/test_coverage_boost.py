@@ -1,9 +1,5 @@
 """Additional tests to boost coverage to 90%+."""
 import pytest
-import logging
-from unittest.mock import MagicMock, patch
-
-import pydantic
 
 from src.ioc.container import AppContainer, ContainerInterface
 from src.ioc.config.base import Settings
@@ -231,7 +227,7 @@ class TestLoggingSetupDetails:
 
     def test_setup_logging_returns_logger(self):
         """Test setup_logging returns a Logger instance."""
-        from src.ioc.logging.setup import setup_logging
+        from ioc.config.setup import setup_logging
         import logging
 
         logger = setup_logging(name="test_detail")
@@ -239,7 +235,7 @@ class TestLoggingSetupDetails:
 
     def test_setup_logging_level_propagation(self):
         """Test setup_logging level is set correctly."""
-        from src.ioc.logging.setup import setup_logging
+        from ioc.config.setup import setup_logging
         import logging
 
         logger = setup_logging(name="test_level", level=logging.WARNING)

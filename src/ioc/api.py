@@ -43,6 +43,7 @@ from .config.base import Settings
 from .config.registry import register_configuration, clear_configurations
 from .config.loaders import load_file
 from .config.models import IOCComponentsDefinition, IOCBaseConfig
+from .config.setup import setup_logging
 from .bootstrap import (
     initialize_ioc_app,
     create_container,
@@ -51,7 +52,6 @@ from .bootstrap import (
     reload_configuration,
 )
 from .loader.module_loader import compile_component
-from .logging.setup import setup_logging
 
 __all__ = [
     # Container

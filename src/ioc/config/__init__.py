@@ -6,6 +6,7 @@ from .registry import (
 )
 from .loaders import load_file
 from .models import IOCComponentsDefinition, IOCBaseConfig
+from .setup import setup_logging
 
 __all__ = [
     "Settings",
@@ -13,6 +14,7 @@ __all__ = [
     "register_configuration",
     "clear_configurations",
     "load_file",
+    "setup_logging",
     "IOCComponentsDefinition",
     "IOCBaseConfig",
 ]

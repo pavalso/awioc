@@ -7,10 +7,10 @@ from .components.protocols import Component
 from .config.base import Settings
 from .config.loaders import load_file
 from .config.models import IOCComponentsDefinition, IOCBaseConfig
+from .config.setup import setup_logging
 from .container import AppContainer, ContainerInterface
 from .di.wiring import wire, inject_dependencies
 from .loader.module_loader import compile_component
-from .logging.setup import setup_logging
 from .utils import deep_update
 
 

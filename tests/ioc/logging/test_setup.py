@@ -1,7 +1,6 @@
-import pytest
 import logging
 
-from src.ioc.logging.setup import setup_logging
+from src.ioc.config.setup import setup_logging
 
 
 class TestSetupLogging:
