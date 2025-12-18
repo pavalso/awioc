@@ -4,7 +4,6 @@ from typing import TypeVar, Optional, overload
 import pydantic
 from dependency_injector import containers, providers
 
-from .config.models import IOCBaseConfig
 from .components.metadata import ComponentTypes, Internals
 from .components.protocols import (
     Component,
@@ -14,6 +13,7 @@ from .components.protocols import (
 )
 from .components.registry import component_requires, component_internals
 from .config.base import Settings
+from .config.models import IOCBaseConfig
 
 _Lib_type = TypeVar("_Lib_type")
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)
@@ -53,7 +53,7 @@ class ContainerInterface:
             cfg_cls = meta["base_config"]
             assert issubclass(cfg_cls, Settings)
             return cfg_cls
-        raise ValueError("App base configuration model is not defined in the app metadata.")
+        return IOCBaseConfig
 
     @property
     def ioc_config_model(self):

@@ -5,15 +5,13 @@ A minimal HTTP server demonstrating the IOC framework.
 """
 
 import asyncio
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from typing import Optional
 
 import pydantic
-
 from dependency_injector.wiring import inject
-
-from ioc import get_config, get_logger, IOCBaseConfig
+from ioc import get_config, get_logger
 
 
 class ServerConfig(pydantic.BaseModel):
@@ -28,14 +26,19 @@ __metadata__ = {
     "version": "1.0.0",
     "description": "Simple HTTP Server Application",
     "wire": True,
-    "base_config": IOCBaseConfig,
     "config": ServerConfig
 }
 
 class RequestHandler(BaseHTTPRequestHandler):
     """Simple HTTP request handler."""
 
-    def do_GET(self):
+    @inject
+    def do_GET(
+            self,
+            logger=get_logger()
+    ):
+        """Handle GET requests."""
+        logger.info(f"GET {self.path} FROM {self.client_address[0]}:{self.client_address[1]}")
         if self.path == "/":
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -84,7 +87,7 @@ class HttpServerApp:
     """
 
     def __init__(self):
-        self._server: Optional[HTTPServer] = None
+        self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[Thread] = None
         self._running = False
         self._shutdown_event: Optional[asyncio.Event] = None
@@ -100,7 +103,7 @@ class HttpServerApp:
 
         logger.info(f"Starting HTTP server on {config.host}:{config.port}")
 
-        self._server = HTTPServer((config.host, config.port), RequestHandler)
+        self._server = ThreadingHTTPServer((config.host, config.port), RequestHandler)
         self._running = True
 
         # Use serve_forever in a thread - it handles shutdown properly
@@ -114,21 +117,16 @@ class HttpServerApp:
         if self._shutdown_event:
             await self._shutdown_event.wait()
 
-    @inject
     async def shutdown(
-            self,
-            logger = get_logger()
+            self
     ) -> None:
         """Stop the HTTP server."""
-        logger.info("Shutting down HTTP server...")
-
         self._running = False
 
         if self._shutdown_event:
             self._shutdown_event.set()
 
         if self._server:
-            # shutdown() signals serve_forever() to stop
             self._server.shutdown()
             self._server.server_close()
             self._server = None
@@ -136,8 +134,6 @@ class HttpServerApp:
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
-
-        logger.info("HTTP server stopped")
 
 http_server_app = HttpServerApp()
 initialize = http_server_app.initialize

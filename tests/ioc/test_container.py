@@ -1,11 +1,11 @@
-import pytest
 import logging
 
+import pytest
 from dependency_injector import providers
-
-from src.ioc.container import AppContainer, ContainerInterface
 from src.ioc.components.metadata import Internals, ComponentTypes
 from src.ioc.config.base import Settings
+from src.ioc.config.models import IOCBaseConfig
+from src.ioc.container import AppContainer, ContainerInterface
 
 
 class TestAppContainer:
@@ -208,7 +208,7 @@ class TestContainerInterface:
         config_model = interface.app_config_model
         assert config_model == Settings
 
-    def test_app_config_model_raises_when_not_defined(self, interface):
+    def test_app_config_model_returns_default_when_not_defined(self, interface):
         """Test app_config_model raises when not defined."""
         class AppNoConfig:
             __metadata__ = {
@@ -225,8 +225,7 @@ class TestContainerInterface:
 
         interface.set_app(AppNoConfig())
 
-        with pytest.raises(ValueError, match="App base configuration model is not defined"):
-            interface.app_config_model
+        assert interface.app_config_model == IOCBaseConfig
 
     def test_ioc_config_model(self, interface):
         """Test ioc_config_model property."""

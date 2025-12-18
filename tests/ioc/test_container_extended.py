@@ -1,11 +1,9 @@
 import pytest
-import logging
-
 from dependency_injector import providers
-
-from src.ioc.container import AppContainer, ContainerInterface
-from src.ioc.components.metadata import Internals, ComponentTypes
+from src.ioc.components.metadata import Internals
 from src.ioc.config.base import Settings
+from src.ioc.config.models import IOCBaseConfig
+from src.ioc.container import AppContainer, ContainerInterface
 
 
 class TestContainerInterfaceExtended:
@@ -57,8 +55,7 @@ class TestContainerInterfaceExtended:
 
         interface.set_app(AppWithNoneConfig())
 
-        with pytest.raises(ValueError, match="App base configuration model is not defined"):
-            interface.app_config_model
+        assert interface.app_config_model == IOCBaseConfig
 
     def test_register_multiple_libraries(self, interface):
         """Test registering multiple libraries at once."""

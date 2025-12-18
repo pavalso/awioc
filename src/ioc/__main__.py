@@ -5,7 +5,6 @@ import logging
 import logging.config
 import sys
 
-from .config.models import IOCBaseConfig
 from . import (
     compile_ioc_app,
     initialize_ioc_app,
@@ -13,6 +12,7 @@ from . import (
     shutdown_components,
     wait_for_components
 )
+from .config.models import IOCBaseConfig
 
 
 def preprocess_verbose_args() -> None:
@@ -47,18 +47,17 @@ def configure_logging(config: IOCBaseConfig) -> None:
     Priority:
     1. logging_config (.ini file) if provided
     2. verbose level (-v, -vv, -vvv)
-    3. Default (WARNING level)
+    3. Default (INFO level, simple format)
     """
     if config.logging_config and config.logging_config.exists():
         logging.config.fileConfig(config.logging_config)
         return
 
     level_map = {
-        0: logging.WARNING,
-        1: logging.INFO,
-        2: logging.DEBUG,
+        0: logging.INFO,
+        1: logging.DEBUG
     }
-    level = level_map.get(min(config.verbose, 2), logging.DEBUG)
+    level = level_map.get(min(config.verbose, len(level_map)), logging.DEBUG)
 
     format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     if config.verbose >= 2:
@@ -98,7 +97,7 @@ def main():
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        logger.info("Shutdown requested by user (KeyboardInterrupt).")
+        ...
 
 
 if __name__ == "__main__":

@@ -31,6 +31,10 @@ def compile_component(name: Path) -> Component:
     else:
         raise FileNotFoundError(f"Component not found: {name}")
 
+    parent_dir = module_path.parent.as_posix()
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
     if module_name in sys.modules:
         return as_component(sys.modules[module_name])
 
