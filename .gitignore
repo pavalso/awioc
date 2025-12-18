@@ -1,6 +1,7 @@
 /.coverage
 /coverage.xml
 /.claude
+/.idea
 /.venv
 /build
 *.egg-info
