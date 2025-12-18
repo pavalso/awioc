@@ -1,21 +1,15 @@
-import pytest
-import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-from dependency_injector import providers
+from unittest.mock import MagicMock
 
 from src.ioc.bootstrap import (
-    create_container,
     initialize_ioc_app,
     compile_ioc_app,
     reconfigure_ioc_app,
     reload_configuration,
 )
-from src.ioc.container import AppContainer, ContainerInterface
 from src.ioc.config.base import Settings
 from src.ioc.config.models import IOCBaseConfig, IOCComponentsDefinition
-from src.ioc.components.metadata import Internals
+from src.ioc.container import AppContainer, ContainerInterface
 
 
 class TestInitializeIOCApp:
@@ -45,8 +39,7 @@ class TestReconfigureIOCApp:
         config_path = temp_dir / "config.yaml"
         config_path.write_text("")
 
-        ioc_config = IOCBaseConfig()
-        ioc_config.__dict__['config_path'] = None
+        ioc_config = IOCBaseConfig(config_path=config_path)
 
         class MockApp:
             __name__ = "mock_app"
@@ -88,8 +81,10 @@ class TestReloadConfiguration:
         container = AppContainer()
         interface = ContainerInterface(container)
 
-        ioc_config = IOCBaseConfig()
-        object.__setattr__(ioc_config, '__dict__', {'config_path': None})
+        config_path = temp_dir / "config.yaml"
+        config_path.write_text("")
+
+        ioc_config = IOCBaseConfig(config_path=config_path)
 
         class MockApp:
             __name__ = "mock_app"

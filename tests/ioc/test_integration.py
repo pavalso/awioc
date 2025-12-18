@@ -8,32 +8,30 @@ These tests verify the full workflow of the framework including:
 - Configuration loading and injection
 - Module loading and wiring
 """
-import asyncio
 import logging
-import pytest
-import pydantic
-from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
 
-from src.ioc.container import AppContainer, ContainerInterface
+import pydantic
+import pytest
+from src.ioc.bootstrap import create_container, reconfigure_ioc_app
 from src.ioc.components.lifecycle import (
     initialize_components,
     shutdown_components,
     register_plugin,
     unregister_plugin,
 )
+from src.ioc.components.metadata import Internals
 from src.ioc.components.registry import (
     as_component,
     component_requires,
     component_internals,
     component_str,
 )
-from src.ioc.components.metadata import Internals, ComponentTypes
 from src.ioc.config.base import Settings
-from src.ioc.config.models import IOCBaseConfig, IOCComponentsDefinition
-from src.ioc.config.registry import register_configuration, clear_configurations
+from src.ioc.config.models import IOCBaseConfig
+from src.ioc.config.registry import clear_configurations
+from src.ioc.container import AppContainer, ContainerInterface
 from src.ioc.di.wiring import wire, inject_dependencies
-from src.ioc.bootstrap import create_container, reconfigure_ioc_app
 from src.ioc.loader.module_loader import compile_component
 
 
@@ -989,8 +987,7 @@ class TestContainerBootstrap:
         config_path = temp_dir / "config.yaml"
         config_path.write_text("")
 
-        ioc_config = IOCBaseConfig()
-        object.__setattr__(ioc_config, 'config_path', None)
+        ioc_config = IOCBaseConfig(config_path=config_path)
 
         class MockApp:
             __name__ = "mock_app"
@@ -1345,8 +1342,6 @@ class TestCompleteLifecycle:
             "service_name: my_service\n"
             "max_connections: 100\n"
         )
-
-        import pydantic
 
         # Define app config
         class ServiceConfig(Settings):

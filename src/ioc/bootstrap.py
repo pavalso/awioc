@@ -46,10 +46,7 @@ def initialize_ioc_app() -> ContainerInterface:  # pragma: no cover
     else:
         ioc_config_context = ioc_config_env
 
-    if ioc_config_context.config_path is not None:
-        file_data = load_file(ioc_config_context.config_path)
-    else:
-        file_data = {}
+    file_data = load_file(ioc_config_context.config_path)
 
     ioc_components_definition = IOCComponentsDefinition.model_validate(file_data)
 
@@ -112,7 +109,7 @@ def reconfigure_ioc_app(
     base_config.model_config = ioc_config.model_config
     env_config = base_config.load_config()
 
-    config_file_content = load_file(ioc_config.config_path) if ioc_config.config_path else {}
+    config_file_content = load_file(ioc_config.config_path)
 
     file_config = env_config.model_validate(config_file_content)
 

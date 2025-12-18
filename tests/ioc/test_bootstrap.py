@@ -1,13 +1,9 @@
-import pytest
 import logging
-from unittest.mock import MagicMock, patch
 from pathlib import Path
 
-from dependency_injector import providers
-
-from src.ioc.container import AppContainer, ContainerInterface
 from src.ioc.config.base import Settings
 from src.ioc.config.models import IOCBaseConfig
+from src.ioc.container import AppContainer, ContainerInterface
 
 
 class TestCreateContainer:
@@ -89,7 +85,7 @@ class TestBootstrapIntegration:
     def test_ioc_base_config_model(self):
         """Test IOCBaseConfig model."""
         config = IOCBaseConfig()
-        assert config.config_path is None
+        assert config.config_path == Path("ioc.yaml")
         assert config.context is None
 
     def test_ioc_base_config_with_values(self, temp_dir):

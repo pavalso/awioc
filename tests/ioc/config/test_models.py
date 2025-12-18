@@ -1,6 +1,6 @@
-import pytest
 from pathlib import Path
 
+import pytest
 from src.ioc.config.models import IOCComponentsDefinition, IOCBaseConfig
 
 
@@ -47,7 +47,7 @@ class TestIOCBaseConfig:
     def test_default_values(self):
         """Test default configuration values."""
         config = IOCBaseConfig()
-        assert config.config_path is None
+        assert config.config_path == Path("ioc.yaml")
         assert config.context is None
 
     def test_with_config_path(self, temp_dir):
@@ -72,11 +72,6 @@ class TestIOCBaseConfig:
         # Test with environment variable in path
         config = IOCBaseConfig(config_path=f"{temp_dir}/config.yaml")
         assert config.config_path is not None
-
-    def test_config_path_none_validation(self):
-        """Test that None config_path is valid."""
-        config = IOCBaseConfig(config_path=None)
-        assert config.config_path is None
 
     def test_inherits_from_settings(self):
         """Test that IOCBaseConfig inherits from Settings."""
