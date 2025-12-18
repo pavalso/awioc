@@ -26,6 +26,7 @@ from .api import (
     get_app,
     get_logger,
     wire,
+    inject,
     # Config
     Settings,
     register_configuration,
@@ -75,6 +76,7 @@ __all__ = [
     "get_app",
     "get_logger",
     "wire",
+    "inject",
     # Config
     "Settings",
     "register_configuration",

@@ -5,7 +5,15 @@ This module exports all public interfaces for consumers to use.
 Import only from this module for stable API access.
 """
 
-from .container import ContainerInterface, AppContainer
+from dependency_injector.wiring import inject
+
+from .bootstrap import (
+    initialize_ioc_app,
+    create_container,
+    compile_ioc_app,
+    reconfigure_ioc_app,
+    reload_configuration,
+)
 from .components.lifecycle import (
     initialize_components,
     shutdown_components,
@@ -13,16 +21,16 @@ from .components.lifecycle import (
     register_plugin,
     unregister_plugin,
 )
+from .components.metadata import (
+    ComponentMetadata,
+    AppMetadata,
+    ComponentTypes,
+)
 from .components.protocols import (
     Component,
     AppComponent,
     PluginComponent,
     LibraryComponent,
-)
-from .components.metadata import (
-    ComponentMetadata,
-    AppMetadata,
-    ComponentTypes,
 )
 from .components.registry import (
     as_component,
@@ -30,6 +38,12 @@ from .components.registry import (
     component_internals,
     component_str,
 )
+from .config.base import Settings
+from .config.loaders import load_file
+from .config.models import IOCComponentsDefinition, IOCBaseConfig
+from .config.registry import register_configuration, clear_configurations
+from .config.setup import setup_logging
+from .container import ContainerInterface, AppContainer
 from .di.providers import (
     get_library,
     get_config,
@@ -39,18 +53,6 @@ from .di.providers import (
     get_logger,
 )
 from .di.wiring import wire
-from .config.base import Settings
-from .config.registry import register_configuration, clear_configurations
-from .config.loaders import load_file
-from .config.models import IOCComponentsDefinition, IOCBaseConfig
-from .config.setup import setup_logging
-from .bootstrap import (
-    initialize_ioc_app,
-    create_container,
-    compile_ioc_app,
-    reconfigure_ioc_app,
-    reload_configuration,
-)
 from .loader.module_loader import compile_component
 
 __all__ = [
@@ -83,6 +85,7 @@ __all__ = [
     "get_app",
     "get_logger",
     "wire",
+    "inject",
     # Config
     "Settings",
     "register_configuration",
