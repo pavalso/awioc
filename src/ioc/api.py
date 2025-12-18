@@ -9,6 +9,7 @@ from .container import ContainerInterface, AppContainer
 from .components.lifecycle import (
     initialize_components,
     shutdown_components,
+    wait_for_components,
     register_plugin,
     unregister_plugin,
 )
@@ -71,6 +72,7 @@ __all__ = [
     # Lifecycle
     "initialize_components",
     "shutdown_components",
+    "wait_for_components",
     "register_plugin",
     "unregister_plugin",
     # DI

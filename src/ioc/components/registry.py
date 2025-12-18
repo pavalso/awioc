@@ -25,6 +25,9 @@ def as_component(obj: Any) -> Component:
     if not hasattr(obj, "shutdown"):
         obj.shutdown = None
 
+    if not hasattr(obj, "wait"):
+        obj.wait = None
+
     return obj
 
 

@@ -183,6 +183,47 @@ async def register_plugin(
     return plugin
 
 
+async def wait_for_components(*components: Component):
+    """
+    Wait for the specified components to signal they are done.
+
+    If a component has a `wait` method, it will be awaited. If a component
+    does not have a `wait` method, a default infinite sleep is used.
+
+    This function is typically cancelled via CancelledError when shutdown
+    is requested.
+
+    :param components: Components to wait for.
+    """
+    async def __wait(comp: Component):
+        if hasattr(comp, "wait") and comp.wait is not None:
+            logger.debug("Waiting for component: %s v%s",
+                         comp.__metadata__['name'],
+                         comp.__metadata__['version'])
+            try:
+                await comp.wait()
+            except asyncio.CancelledError:
+                logger.debug("Wait cancelled for component: %s v%s",
+                             comp.__metadata__['name'],
+                             comp.__metadata__['version'])
+                raise
+        else:
+            logger.debug("Component has no wait method, using default: %s v%s",
+                         comp.__metadata__['name'],
+                         comp.__metadata__['version'])
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                pass
+
+    try:
+        await asyncio.gather(*map(__wait, components))
+    except asyncio.CancelledError:
+        logger.debug("Wait for components cancelled")
+        raise
+
+
 async def unregister_plugin(
         api_container: "ContainerInterface",
         plugin: PluginComponent

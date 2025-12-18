@@ -15,11 +15,27 @@ class IOCComponentsDefinition(pydantic.BaseModel):
 
 
 class IOCBaseConfig(Settings):
-    config_path: Optional[Path] = None
+    config_path: Optional[Path] = pydantic.Field(
+        default=None,
+        description="Path to the IOC components configuration file (YAML/JSON)"
+    )
 
-    context: Optional[str] = None
+    context: Optional[str] = pydantic.Field(
+        default=None,
+        description="Environment context (loads .{context}.env file)"
+    )
 
-    @pydantic.field_validator("config_path", mode="before")
+    logging_config: Optional[Path] = pydantic.Field(
+        default=None,
+        description="Path to logging configuration file (.ini)"
+    )
+
+    verbose: int = pydantic.Field(
+        default=0,
+        description="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
+    )
+
+    @pydantic.field_validator("config_path", "logging_config", mode="before")
     @classmethod
     def validate_paths(cls, v):
         if v is None:

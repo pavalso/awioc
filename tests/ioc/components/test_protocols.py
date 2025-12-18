@@ -26,6 +26,7 @@ class TestComponentProtocol:
             }
             initialize = None
             shutdown = None
+            wait = None
 
         assert isinstance(ValidComponent(), Component)
 
@@ -40,6 +41,9 @@ class TestComponentProtocol:
             async def shutdown(self):
                 pass
 
+            async def wait(self):
+                pass
+
         comp = AsyncComponent()
         assert isinstance(comp, Component)
 
@@ -48,6 +52,7 @@ class TestComponentProtocol:
         class NoMetadata:
             initialize = None
             shutdown = None
+            wait = None
 
         assert not isinstance(NoMetadata(), Component)
 
@@ -71,6 +76,9 @@ class TestAppComponentProtocol:
             async def shutdown(self):
                 pass
 
+            async def wait(self):
+                pass
+
         assert isinstance(ValidApp(), AppComponent)
 
     def test_app_component_is_component(self):
@@ -82,6 +90,9 @@ class TestAppComponentProtocol:
                 pass
 
             async def shutdown(self):
+                pass
+
+            async def wait(self):
                 pass
 
         app = App()
@@ -98,6 +109,7 @@ class TestPluginComponentProtocol:
             __metadata__ = {"name": "plugin", "version": "1.0.0", "description": ""}
             initialize = None
             shutdown = None
+            wait = None
 
         assert isinstance(ValidPlugin(), PluginComponent)
 
@@ -107,6 +119,7 @@ class TestPluginComponentProtocol:
             __metadata__ = {"name": "plugin", "version": "1.0.0", "description": ""}
             initialize = None
             shutdown = None
+            wait = None
 
         plugin = Plugin()
         assert isinstance(plugin, Component)
@@ -122,6 +135,7 @@ class TestLibraryComponentProtocol:
             __metadata__ = {"name": "lib", "version": "1.0.0", "description": ""}
             initialize = None
             shutdown = None
+            wait = None
 
         assert isinstance(ValidLibrary(), LibraryComponent)
 
@@ -131,6 +145,7 @@ class TestLibraryComponentProtocol:
             __metadata__ = {"name": "lib", "version": "1.0.0", "description": ""}
             initialize = None
             shutdown = None
+            wait = None
 
         lib = Library()
         assert isinstance(lib, Component)

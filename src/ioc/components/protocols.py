@@ -9,6 +9,7 @@ class Component(Protocol):
 
     initialize: Optional[Callable[..., Coroutine[Any, Any, None]]]
     shutdown: Optional[Callable[..., Coroutine[Any, Any, None]]]
+    wait: Optional[Callable[..., Coroutine[Any, Any, None]]]
 
 
 @runtime_checkable
