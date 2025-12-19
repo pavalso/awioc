@@ -1,10 +1,10 @@
 """Additional tests to boost coverage to 90%+."""
 import pytest
 
-from src.awioc.container import AppContainer, ContainerInterface
-from src.awioc.config.base import Settings
 from src.awioc.components.metadata import Internals, ComponentTypes
 from src.awioc.components.registry import component_requires
+from src.awioc.config.base import Settings
+from src.awioc.container import AppContainer, ContainerInterface
 
 
 class TestComponentRequiresRecursive:
@@ -156,9 +156,7 @@ class TestSettingsModelConfig:
         assert settings.model_config["env_nested_delimiter"] == "_"
         assert settings.model_config["env_nested_max_split"] == 1
         assert settings.model_config["env_prefix"] == ""
-        assert settings.model_config["cli_ignore_unknown_args"] is True
         assert settings.model_config["cli_avoid_json"] is True
-        assert settings.model_config["cli_parse_args"] is True
         assert settings.model_config["validate_default"] is True
 
 

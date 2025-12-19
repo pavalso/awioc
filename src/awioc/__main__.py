@@ -1,14 +1,13 @@
 """Entry point for running the IOC framework as a module (python -m ioc)."""
 
+import argparse
 import asyncio
 import logging
 import logging.config
-import sys
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-
-import pydantic
-import pydantic_settings
 
 from . import (
     compile_ioc_app,
@@ -20,56 +19,66 @@ from . import (
 from .utils import expanded_path
 
 
-class CLIConfig(pydantic_settings.BaseSettings):
-    """CLI-specific configuration for logging options."""
+@dataclass
+class CLIConfig:
+    """CLI-specific configuration for logging and IOC settings."""
+    logging_config: Optional[Path] = None
+    verbose: int = 0
+    config_path: Optional[Path] = None
+    context: Optional[str] = None
 
-    logging_config: Optional[Path] = pydantic.Field(
+
+def parse_args() -> CLIConfig:
+    """Parse command-line arguments using argparse."""
+    parser = argparse.ArgumentParser(
+        description="Run the IOC framework application",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    parser.add_argument(
+        "-c", "--config-path",
+        type=Path,
         default=None,
-        description="Path to logging configuration file (.ini)"
+        help="Path to the IOC components configuration file (YAML/JSON)"
     )
 
-    verbose: int = pydantic.Field(
+    parser.add_argument(
+        "--context",
+        type=str,
+        default=None,
+        help="Environment context (loads .{context}.env file)"
+    )
+
+    parser.add_argument(
+        "--logging-config",
+        type=Path,
+        default=None,
+        help="Path to logging configuration file (.ini)"
+    )
+
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
         default=0,
-        description="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
+        help="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
     )
 
-    @pydantic.field_validator("logging_config", mode="before")
-    @classmethod
-    def validate_logging_config(cls, v):
-        if v is None:
-            return v
-        return expanded_path(v)
+    args, _ = parser.parse_known_args()
 
-    model_config = pydantic_settings.SettingsConfigDict(
-        cli_parse_args=True,
-        cli_ignore_unknown_args=True,
+    logging_config = None
+    if args.logging_config:
+        logging_config = expanded_path(args.logging_config)
+
+    config_path = None
+    if args.config_path:
+        config_path = expanded_path(args.config_path)
+
+    return CLIConfig(
+        logging_config=logging_config,
+        verbose=args.verbose,
+        config_path=config_path,
+        context=args.context
     )
-
-
-def preprocess_verbose_args() -> None:
-    """Convert -v, -vv, -vvv flags to --verbose N format.
-
-    This allows standard Unix-style verbose flags while using pydantic-settings
-    for argument parsing.
-    """
-    new_argv = [sys.argv[0]]
-    verbose_count = 0
-
-    for arg in sys.argv[1:]:
-        if arg.startswith("-v") and not arg.startswith("--"):
-            if arg == "-v":
-                verbose_count += 1
-            elif all(c == "v" for c in arg[1:]):
-                verbose_count += len(arg) - 1
-            else:
-                new_argv.append(arg)
-        else:
-            new_argv.append(arg)
-
-    if verbose_count > 0:
-        new_argv.append(f"--verbose={verbose_count}")
-
-    sys.argv = new_argv
 
 
 def configure_logging(config: CLIConfig) -> None:
@@ -105,8 +114,12 @@ def configure_logging(config: CLIConfig) -> None:
             logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-async def run():
-    cli_config = CLIConfig()
+async def run(cli_config: CLIConfig):
+    if cli_config.config_path:
+        os.environ["CONFIG_PATH"] = str(cli_config.config_path)
+
+    if cli_config.context:
+        os.environ["CONTEXT"] = cli_config.context
 
     api = initialize_ioc_app()
     app = api.provided_app()
@@ -144,10 +157,10 @@ async def run():
 
 
 def main():
-    preprocess_verbose_args()
+    cli_config = parse_args()
 
     try:
-        asyncio.run(run())
+        asyncio.run(run(cli_config))
     except KeyboardInterrupt:
         ...
 

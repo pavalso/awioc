@@ -18,9 +18,7 @@ class Settings(settings.BaseSettings):
         env_nested_delimiter="_",
         env_nested_max_split=1,
         env_prefix="",
-        cli_ignore_unknown_args=True,
         cli_avoid_json=True,
-        cli_parse_args=True,
         validate_default=True
     )
 
