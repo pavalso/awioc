@@ -1,7 +1,10 @@
+import logging
 from typing import Any
 
 from .metadata import Internals
 from .protocols import Component
+
+logger = logging.getLogger(__name__)
 
 
 def as_component(obj: Any) -> Component:
@@ -12,8 +15,10 @@ def as_component(obj: Any) -> Component:
     :return: The object as a Component.
     """
     if not hasattr(obj, "__metadata__"):
+        name = getattr(obj, "__qualname__", obj.__class__.__qualname__)
+        logger.debug("Converting object to component: %s", name)
         obj.__metadata__ = {
-            "name": getattr(obj, "__qualname__", obj.__class__.__qualname__),
+            "name": name,
             "version": "0.0.0",
             "wire": False,
             "description": getattr(obj, "__doc__", "") or ""

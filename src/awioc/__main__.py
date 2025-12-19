@@ -3,6 +3,9 @@
 import argparse
 import asyncio
 import logging
+
+logger = logging.getLogger(__name__)
+
 import logging.config
 import os
 from dataclasses import dataclass
@@ -124,9 +127,6 @@ async def run(cli_config: CLIConfig):
     api = initialize_ioc_app()
     app = api.provided_app()
 
-    configure_logging(cli_config)
-    logger = api.provided_logger()
-
     compile_ioc_app(api)
 
     try:
@@ -158,6 +158,8 @@ async def run(cli_config: CLIConfig):
 
 def main():
     cli_config = parse_args()
+
+    configure_logging(cli_config)
 
     try:
         asyncio.run(run(cli_config))

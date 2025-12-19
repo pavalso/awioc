@@ -1,5 +1,8 @@
+import logging
 from logging import Logger
 from typing import TypeVar, Optional, overload
+
+logger = logging.getLogger(__name__)
 
 import pydantic
 from dependency_injector import containers, providers
@@ -139,6 +142,7 @@ class ContainerInterface:
             self,
             *libs: tuple[str | type, LibraryComponent]
     ) -> None:
+        logger.debug("Registering %d libraries", len(libs))
         for key, lib in libs:
             lib_id = key if isinstance(key, str) else key.__qualname__
 
@@ -148,6 +152,7 @@ class ContainerInterface:
             provider = providers.Object(lib)
             self._libs_map[lib_id] = provider
             self._container.components()[lib_id] = provider
+            logger.debug("Registered library: %s", lib_id)
 
     def unregister_libraries(  # pragma: no cover
             self,
@@ -162,17 +167,20 @@ class ContainerInterface:
             self,
             *plugins: PluginComponent
     ) -> None:
+        logger.debug("Registering %d plugins", len(plugins))
         for plugin in plugins:
             plugin_id = plugin.__metadata__["name"]
             self.__init_component(plugin)
             provider = providers.Object(plugin)
             self._plugins_map[plugin_id] = provider
             self._container.components()[plugin_id] = provider
+            logger.debug("Registered plugin: %s", plugin_id)
 
     def unregister_plugins(
             self,
             *plugins: PluginComponent
     ) -> None:
+        logger.debug("Unregistering %d plugins", len(plugins))
         for plugin in plugins:
             plugin_id = plugin.__metadata__["name"]
             if plugin_id in self._plugins_map:
@@ -180,18 +188,23 @@ class ContainerInterface:
                 del self._plugins_map[plugin_id]
                 if plugin_id in self._container.components():
                     del self._container.components()[plugin_id]
+                logger.debug("Unregistered plugin: %s", plugin_id)
 
     def set_app(self, app: AppComponent) -> None:
+        app_name = app.__metadata__["name"]
+        logger.debug("Setting app component: %s", app_name)
         self.__init_component(app)
         self._app_component = app
-        self._container.components()[app.__metadata__["name"]] = providers.Object(app)
+        self._container.components()[app_name] = providers.Object(app)
 
-    def set_logger(self, logger: Logger) -> None:
+    def set_logger(self, new_logger: Logger) -> None:
+        logger.debug("Setting container logger: %s", new_logger.name if new_logger else None)
         self._container.logger.override(
-            providers.Object(logger)
+            providers.Object(new_logger)
         )
 
     def set_config(self, config: Settings) -> None:
+        logger.debug("Setting container configuration: %s", type(config).__name__)
         self._container.config.override(
             providers.Object(config)
         )

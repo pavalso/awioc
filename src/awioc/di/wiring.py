@@ -1,9 +1,12 @@
+import logging
 from types import ModuleType
 from typing import Optional, Iterable
 
 from ..components.protocols import Component
 from ..config.registry import register_configuration
 from ..container import ContainerInterface
+
+logger = logging.getLogger(__name__)
 
 
 def inject_dependencies(
@@ -16,6 +19,7 @@ def inject_dependencies(
     :param container: The container interface.
     :param components: Components to process. If None, uses all container components.
     """
+    logger.debug("Injecting dependencies")
     if components is None:
         components = container.components
 
@@ -31,9 +35,12 @@ def inject_dependencies(
                     prefix = config.__prefix__
                 else:
                     prefix = item.__metadata__['name']
+                logger.debug("Registering configuration for component '%s' with prefix '%s'",
+                             item.__metadata__.get('name', 'unknown'), prefix)
                 register_configuration(config, prefix=prefix)
 
     __register_components(components)
+    logger.debug("Dependency injection complete")
 
 
 def wire(
@@ -47,6 +54,7 @@ def wire(
     :param components: Specific components to wire. If None, all components are wired.
     :return: The main application instance.
     """
+    logger.debug("Wiring container")
     if components is None:
         components = api_container.components
 
@@ -74,7 +82,10 @@ def wire(
                     relative_wirings = wirings_
 
                 wirings.update((module_name, *relative_wirings))
+                logger.debug("Added wiring for component: %s", module_name)
 
     __register_components(components)
 
+    logger.debug("Wiring %d modules", len(wirings))
     api_container.raw_container().wire(modules=wirings)
+    logger.debug("Container wiring complete")

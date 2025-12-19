@@ -1,7 +1,10 @@
 import inspect
+import logging
 from typing import TypeVar, Optional
 
 import pydantic
+
+logger = logging.getLogger(__name__)
 
 _M_type = TypeVar("_M_type", bound=type[pydantic.BaseModel])
 
@@ -28,12 +31,15 @@ def register_configuration(
         prefix = prefix.replace(" ", "_")
 
         if prefix in _CONFIGURATIONS:
+            logger.error("Configuration prefix collision: '%s' already registered for %s",
+                         prefix, _CONFIGURATIONS[prefix])
             raise ValueError(
                 f"Configuration prefix collision: '{prefix}' "
                 f"already registered for {_CONFIGURATIONS[prefix]}"
             )
 
         _CONFIGURATIONS[prefix] = model
+        logger.debug("Registered configuration '%s' with prefix '%s'", model.__name__, prefix)
 
         return model
 
@@ -42,4 +48,5 @@ def register_configuration(
 
 def clear_configurations():
     """Clear all registered configurations."""
+    logger.debug("Clearing all registered configurations")
     _CONFIGURATIONS.clear()
