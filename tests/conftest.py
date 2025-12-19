@@ -102,7 +102,7 @@ def sample_app_module(temp_dir):
     """Create a sample app module for testing."""
     module_path = temp_dir / "app.py"
     module_path.write_text("""
-from src.ioc.config import Settings
+from src.awioc.config import Settings
 
 class AppConfig(Settings):
     app_name: str = "test_app"
@@ -127,7 +127,7 @@ async def shutdown():
 @pytest.fixture(autouse=True)
 def clean_configurations():
     """Clean configurations before and after each test."""
-    from src.ioc.config.registry import clear_configurations
+    from src.awioc.config.registry import clear_configurations
     clear_configurations()
     yield
     clear_configurations()

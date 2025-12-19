@@ -10,7 +10,8 @@ from threading import Thread
 from typing import Optional
 
 import pydantic
-from ioc import get_config, get_logger, inject
+
+from awioc import get_config, get_logger, inject
 
 
 class ServerConfig(pydantic.BaseModel):
