@@ -11,8 +11,6 @@ from . import (
     initialize_components,
     shutdown_components,
     wait_for_components,
-    inject,
-    get_logger,
     IOCBaseConfig
 )
 
@@ -75,12 +73,13 @@ def configure_logging(config: IOCBaseConfig) -> None:
         for lib in ("asyncio", "urllib3", "httpcore", "httpx"):
             logging.getLogger(lib).setLevel(logging.WARNING)
 
-@inject
-async def run(
-        logger = get_logger()
-):
+
+async def run():
     api = initialize_ioc_app()
     app = api.provided_app()
+
+    configure_logging(api.ioc_config_model)
+    logger = api.provided_logger()
 
     compile_ioc_app(api)
 
@@ -113,8 +112,6 @@ async def run(
 
 def main():
     preprocess_verbose_args()
-    config = IOCBaseConfig.load_config()
-    configure_logging(config)
 
     try:
         asyncio.run(run())
