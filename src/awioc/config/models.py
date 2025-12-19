@@ -25,24 +25,7 @@ class IOCBaseConfig(Settings):
         description="Environment context (loads .{context}.env file)"
     )
 
-    logging_config: Optional[Path] = pydantic.Field(
-        default=None,
-        description="Path to logging configuration file (.ini)"
-    )
-
-    verbose: int = pydantic.Field(
-        default=0,
-        description="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
-    )
-
     @pydantic.field_validator("config_path", mode="before")
     @classmethod
     def validate_config_path(cls, v):
-        return expanded_path(v)
-
-    @pydantic.field_validator("logging_config", mode="before")
-    @classmethod
-    def validate_logging_config(cls, v):
-        if v is None:
-            return v
         return expanded_path(v)

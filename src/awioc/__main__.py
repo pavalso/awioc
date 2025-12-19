@@ -4,6 +4,11 @@ import asyncio
 import logging
 import logging.config
 import sys
+from pathlib import Path
+from typing import Optional
+
+import pydantic
+import pydantic_settings
 
 from . import (
     compile_ioc_app,
@@ -11,8 +16,34 @@ from . import (
     initialize_components,
     shutdown_components,
     wait_for_components,
-    IOCBaseConfig
 )
+from .utils import expanded_path
+
+
+class CLIConfig(pydantic_settings.BaseSettings):
+    """CLI-specific configuration for logging options."""
+
+    logging_config: Optional[Path] = pydantic.Field(
+        default=None,
+        description="Path to logging configuration file (.ini)"
+    )
+
+    verbose: int = pydantic.Field(
+        default=0,
+        description="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
+    )
+
+    @pydantic.field_validator("logging_config", mode="before")
+    @classmethod
+    def validate_logging_config(cls, v):
+        if v is None:
+            return v
+        return expanded_path(v)
+
+    model_config = pydantic_settings.SettingsConfigDict(
+        cli_parse_args=True,
+        cli_ignore_unknown_args=True,
+    )
 
 
 def preprocess_verbose_args() -> None:
@@ -41,7 +72,7 @@ def preprocess_verbose_args() -> None:
     sys.argv = new_argv
 
 
-def configure_logging(config: IOCBaseConfig) -> None:
+def configure_logging(config: CLIConfig) -> None:
     """Configure logging based on CLI arguments.
 
     Priority:
@@ -75,10 +106,12 @@ def configure_logging(config: IOCBaseConfig) -> None:
 
 
 async def run():
+    cli_config = CLIConfig()
+
     api = initialize_ioc_app()
     app = api.provided_app()
 
-    configure_logging(api.ioc_config_model)
+    configure_logging(cli_config)
     logger = api.provided_logger()
 
     compile_ioc_app(api)
