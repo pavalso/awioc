@@ -2,8 +2,6 @@ import logging
 from logging import Logger
 from typing import TypeVar, Optional, overload
 
-logger = logging.getLogger(__name__)
-
 import pydantic
 from dependency_injector import containers, providers
 
@@ -20,6 +18,8 @@ from .config.models import IOCBaseConfig
 
 _Lib_type = TypeVar("_Lib_type")
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)
+
+logger = logging.getLogger(__name__)
 
 
 class AppContainer(containers.DeclarativeContainer):
@@ -170,7 +170,10 @@ class ContainerInterface:
         logger.debug("Registering %d plugins", len(plugins))
         for plugin in plugins:
             plugin_id = plugin.__metadata__["name"]
+
             self.__init_component(plugin)
+            component_internals(plugin).type = ComponentTypes.PLUGIN
+
             provider = providers.Object(plugin)
             self._plugins_map[plugin_id] = provider
             self._container.components()[plugin_id] = provider
@@ -193,7 +196,10 @@ class ContainerInterface:
     def set_app(self, app: AppComponent) -> None:
         app_name = app.__metadata__["name"]
         logger.debug("Setting app component: %s", app_name)
+
         self.__init_component(app)
+        component_internals(app).type = ComponentTypes.APP
+
         self._app_component = app
         self._container.components()[app_name] = providers.Object(app)
 
