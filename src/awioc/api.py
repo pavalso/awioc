@@ -51,6 +51,7 @@ from .di.providers import (
     get_raw_container,
     get_app,
     get_logger,
+    get_plugin
 )
 from .di.wiring import wire
 from .loader.module_loader import compile_component
@@ -84,6 +85,7 @@ __all__ = [
     "get_raw_container",
     "get_app",
     "get_logger",
+    "get_plugin",
     "wire",
     "inject",
     # Config

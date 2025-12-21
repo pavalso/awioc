@@ -1,15 +1,25 @@
 import inspect
 from logging import Logger
-from typing import TypeVar, Optional, Union, overload
+from types import ModuleType
+from typing import TypeVar, Optional, Union, overload, Any
 
 import pydantic
 from dependency_injector.wiring import Provide, provided
 
-from ..components.protocols import AppComponent
+from ..components.protocols import AppComponent, Component
 from ..container import AppContainer, ContainerInterface
 
-_Lib_type = TypeVar("_Lib_type")
+_Component = Union[Component, ModuleType]
+_AppComponent = Union[AppComponent, ModuleType]
+_Component_type = Union[Component, Any]
+
+_Lib_type = TypeVar("_Lib_type", bound=_Component)
+_Plugin_type = TypeVar("_Plugin_type", bound=_Component)
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)
+
+@overload
+def get_library(type_: str) -> _Component_type:  # pragma: no cover
+    ...
 
 
 @overload
@@ -17,13 +27,12 @@ def get_library(type_: type[_Lib_type]) -> _Lib_type:  # pragma: no cover
     ...
 
 
-@overload
-def get_library(type_: str) -> _Lib_type:  # pragma: no cover
-    ...
-
-
 def get_library(type_: Union[type[_Lib_type], str]) -> _Lib_type:
     return Provide["api", provided().provided_lib.call(type_)]
+
+
+def get_plugin(type_: str) -> Optional[_Component_type]:
+    return Provide["api", provided().provided_plugin.call(type_)]
 
 
 @overload
@@ -50,7 +59,7 @@ def get_raw_container() -> AppContainer:
     return Provide["__self__", provided()]
 
 
-def get_app() -> AppComponent:
+def get_app() -> _AppComponent:
     return Provide["app", provided()]
 
 

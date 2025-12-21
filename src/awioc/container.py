@@ -1,6 +1,6 @@
 import logging
 from logging import Logger
-from typing import TypeVar, Optional, overload
+from typing import TypeVar, Optional, overload, Union
 
 import pydantic
 from dependency_injector import containers, providers
@@ -17,6 +17,7 @@ from .config.base import Settings
 from .config.models import IOCBaseConfig
 
 _Lib_type = TypeVar("_Lib_type")
+_Plugin_type = TypeVar("_Plugin_type")
 _Model_type = TypeVar("_Model_type", bound=pydantic.BaseModel)
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,17 @@ class ContainerInterface:
     def provided_libs(self) -> set[LibraryComponent]:
         return set(lib() for lib in self._libs_map.values())
 
+    @overload
     def provided_lib(self, type_: type[_Lib_type]) -> _Lib_type:
+        ...
+
+    @overload
+    def provided_lib(self, type_: str) -> _Lib_type:
+        ...
+
+    def provided_lib(self, type_: Union[type[_Lib_type], str]) -> _Lib_type:
+        if isinstance(type_, str):
+            return self._libs_map[type_]()
         return self._libs_map[type_.__qualname__]()
 
     @overload
@@ -104,6 +115,10 @@ class ContainerInterface:
 
     def provided_plugins(self) -> set[PluginComponent]:
         return set(plugin() for plugin in self._plugins_map.values())
+
+    def provided_plugin(self, type_: str) -> Optional[_Plugin_type]:
+        provider = self._plugins_map.get(type_)
+        return provider() if provider is not None else None
 
     def provided_logger(self) -> Logger:
         return self._container.logger()
