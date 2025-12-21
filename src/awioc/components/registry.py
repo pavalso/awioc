@@ -68,12 +68,19 @@ def component_internals(component: Component) -> Internals:
     return component.__metadata__["_internals"]
 
 
-def component_str(comp: Component) -> str:
+def component_str(component: Component) -> str:
     """
     Get a string representation of a component.
 
-    :param comp: The component.
-    :return: String in format "name vversion".
+    :param component: The component.
+    :return: String in format "name version".
     """
-    meta = comp.__metadata__
+    meta = component.__metadata__
     return f"{meta['name']} v{meta['version']}"
+
+
+def component_initialized(component: Component) -> bool:
+    assert hasattr(component, "__metadata__")
+    if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
+        return False
+    return component.__metadata__["_internals"].is_initialized

@@ -3,7 +3,7 @@ from types import ModuleType
 from typing import Optional, Iterable
 
 from ..components.protocols import Component
-from ..config.registry import register_configuration
+from ..config.registry import register_configuration, clear_configurations
 from ..container import ContainerInterface
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,8 @@ def inject_dependencies(
         components = container.components
 
     def __register_components(iterable: Iterable[Component]) -> None:
+        new_configs = {}
+
         for item in iterable:
             configs = item.__metadata__.get("config", set())
 
@@ -37,7 +39,12 @@ def inject_dependencies(
                     prefix = item.__metadata__['name']
                 logger.debug("Registering configuration for component '%s' with prefix '%s'",
                              item.__metadata__.get('name', 'unknown'), prefix)
-                register_configuration(config, prefix=prefix)
+                new_configs[prefix] = config
+
+        clear_configurations(prefixes=new_configs.keys())
+
+        for prefix, config in new_configs.items():
+            register_configuration(config, prefix=prefix)
 
     __register_components(components)
     logger.debug("Dependency injection complete")

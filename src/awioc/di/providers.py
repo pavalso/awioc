@@ -9,8 +9,8 @@ from dependency_injector.wiring import Provide, provided
 from ..components.protocols import AppComponent, Component
 from ..container import AppContainer, ContainerInterface
 
-_Component = Union[Component, ModuleType]
-_AppComponent = Union[AppComponent, ModuleType]
+_Component = Union[Component, ModuleType, Any]
+_AppComponent = Union[AppComponent, ModuleType, Any]
 _Component_type = Union[Component, Any]
 
 _Lib_type = TypeVar("_Lib_type", bound=_Component)

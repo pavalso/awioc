@@ -1,6 +1,6 @@
 import inspect
 import logging
-from typing import TypeVar, Optional
+from typing import TypeVar, Optional, Iterable
 
 import pydantic
 
@@ -46,7 +46,19 @@ def register_configuration(
     return __wrapper__ if _ is None else __wrapper__(_)
 
 
-def clear_configurations():
-    """Clear all registered configurations."""
-    logger.debug("Clearing all registered configurations")
-    _CONFIGURATIONS.clear()
+def clear_configurations(
+        prefixes: Optional[Iterable[str]] = None
+):
+    """
+    Clear all registered configurations.
+
+    :param prefixes: Specific prefixes to clear. If None, clears all configurations.
+    """
+    if prefixes is None:
+        _CONFIGURATIONS.clear()
+        logger.debug("Cleared all registered configurations")
+    else:
+        for prefix in prefixes:
+            if prefix in _CONFIGURATIONS:
+                del _CONFIGURATIONS[prefix]
+                logger.debug("Cleared configuration with prefix '%s'", prefix)

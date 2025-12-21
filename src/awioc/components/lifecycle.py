@@ -1,11 +1,10 @@
 import asyncio
 import inspect
 import logging
-
 from typing import TYPE_CHECKING
 
 from .protocols import Component, PluginComponent
-from .registry import component_requires, component_internals, component_str
+from .registry import component_requires, component_internals, component_str, component_initialized
 
 if TYPE_CHECKING:
     from ..container import ContainerInterface
@@ -138,13 +137,14 @@ async def shutdown_components(
 
     _exceptions = [_exc for _exc in _ret if isinstance(_exc, Exception)]
 
-    if _exceptions:
-        if not return_exceptions:  # pragma: no cover
-            raise ExceptionGroup(
-                "One or more errors occurred during component shutdown.",
-                _exceptions
-            )
+    if return_exceptions:
         return _exceptions
+
+    if _exceptions:
+        raise ExceptionGroup(
+            "One or more errors occurred during component shutdown.",
+            _exceptions
+        )
 
     return components
 
@@ -176,9 +176,6 @@ async def register_plugin(
                  plugin.__metadata__['version'],
                  caller_frame.filename,
                  caller_frame.lineno)
-
-    from ..di.wiring import wire
-    wire(api_container, components=(plugin,))
 
     return plugin
 
@@ -244,7 +241,9 @@ async def unregister_plugin(
                        caller_frame.lineno)
         return
 
-    if component_internals(plugin).required_by:
+    if any(component_initialized(requirer)
+           for requirer
+           in component_internals(plugin).required_by):
         raise RuntimeError(
             f"Cannot unregister plugin {component_str(plugin)}; "
             "it is still required by other components"

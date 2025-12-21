@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pydantic
 import pytest
+
 from src.awioc.bootstrap import create_container, reconfigure_ioc_app
 from src.awioc.components.lifecycle import (
     initialize_components,
@@ -402,37 +403,13 @@ class TestPluginManagement:
         base_internals = component_internals(base_plugin)
         base_internals.required_by.add(dependent_plugin)
 
+        # Mock internals set initialized to True
+        component_internals(base_plugin).is_initialized = True
+        component_internals(dependent_plugin).is_initialized = True
+
         # Try to unregister base_plugin while it's still required
         with pytest.raises(RuntimeError, match="still required"):
             await unregister_plugin(interface, base_plugin)
-
-    async def test_register_plugin_with_wiring(self, container_with_app):
-        """Test register_plugin function wires the plugin."""
-        interface = container_with_app
-
-        plugin = type("WiredPlugin", (), {
-            "__name__": "wired_plugin",
-            "__module__": "test",
-            "__package__": None,
-            "__metadata__": {
-                "name": "wired_plugin",
-                "version": "1.0.0",
-                "requires": set(),
-                "wire": True,
-                "wirings": set(),
-            },
-            "initialize": AsyncMock(return_value=True),
-            "shutdown": AsyncMock()
-        })()
-
-        # Register plugin using register_plugin function
-        result = await register_plugin(interface, plugin)
-
-        assert result is plugin
-        assert plugin in interface.provided_plugins()
-        assert "_internals" in plugin.__metadata__
-        # wire should have been called
-        interface.raw_container().wire.assert_called()
 
     async def test_register_plugin_already_registered_returns_existing(self, container_with_app):
         """Test registering an already registered plugin returns it without re-registering."""

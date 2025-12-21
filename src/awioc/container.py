@@ -12,7 +12,11 @@ from .components.protocols import (
     PluginComponent,
     LibraryComponent,
 )
-from .components.registry import component_requires, component_internals
+from .components.registry import (
+    component_requires,
+    component_internals,
+    component_initialized
+)
 from .config.base import Settings
 from .config.models import IOCBaseConfig
 
@@ -116,8 +120,19 @@ class ContainerInterface:
     def provided_plugins(self) -> set[PluginComponent]:
         return set(plugin() for plugin in self._plugins_map.values())
 
+    @overload
+    def provided_plugin(self, type_: type[_Plugin_type]) -> Optional[_Plugin_type]:
+        ...
+
+    @overload
     def provided_plugin(self, type_: str) -> Optional[_Plugin_type]:
-        provider = self._plugins_map.get(type_)
+        ...
+
+    def provided_plugin(self, type_: Union[_Plugin_type, str]) -> Optional[_Plugin_type]:
+        if isinstance(type_, str):
+            provider = self._plugins_map.get(type_)
+        else:
+            provider = self._plugins_map.get(type_.__metadata__["name"])
         return provider() if provider is not None else None
 
     def provided_logger(self) -> Logger:
@@ -126,32 +141,31 @@ class ContainerInterface:
     @classmethod
     def __init_component(cls, component: Component) -> Internals:
         assert hasattr(component, "__metadata__")
-        assert "_internals" not in component.__metadata__
+        assert not component_initialized(component)
 
         _internals = Internals()
         component.__metadata__["_internals"] = _internals
 
         for req in component_requires(component):
-            if not cls.__component_initialized(req):
+            if not component_initialized(req):
                 cls.__init_component(req)
             req.__metadata__["_internals"].required_by.add(component)
 
         return _internals
 
-    @staticmethod
-    def __deinit_component(component: Component):
+    @classmethod
+    def __deinit_component(cls, component: Component):
         assert hasattr(component, "__metadata__")
-        assert "_internals" in component.__metadata__
+
+        if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
+            return
 
         for req in component_requires(component):
+            if not component_initialized(req):
+                continue
             req.__metadata__["_internals"].required_by.discard(component)
 
         component.__metadata__["_internals"] = None
-
-    @staticmethod
-    def __component_initialized(component: Component) -> bool:
-        assert hasattr(component, "__metadata__")
-        return "_internals" in component.__metadata__
 
     def register_libraries(
             self,
