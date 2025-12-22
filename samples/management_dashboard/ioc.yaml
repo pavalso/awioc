@@ -1,15 +1,11 @@
-# IOC Framework Configuration
-# Management Dashboard Sample
-
 app: management_dashboard
-
-# Plugins to demonstrate enable/disable functionality
 plugins:
   - plugins/sample_plugin_a.py
   - plugins/sample_plugin_b.py
   - plugins/sample_plugin_c.py
-
-# Dashboard configuration
 dashboard:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 8090
+  ws_port: 8091
+  monitor_interval: 0.25
+  log_buffer_size: 500
