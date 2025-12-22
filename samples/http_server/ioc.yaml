@@ -1,15 +1,8 @@
-# IOC Framework Configuration
-# This file defines the application components
-
 app: http_server
-
-# Optional: Define libraries
-# libraries:
-
-# Optional: Define plugins
-# plugins:
-
-# Application-specific configuration
 server:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 8080
+  root_dir: ./public
+  allow_upload: false
+  allow_delete: false
+  allow_zip_download: false

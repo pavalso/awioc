@@ -14,6 +14,7 @@ import json
 import logging
 import tempfile
 import time
+import warnings
 from collections import deque
 from dataclasses import dataclass
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -41,9 +42,6 @@ from awioc import (
 )
 from awioc.loader.module_loader import compile_component
 
-# Path to the web assets directory
-WEB_DIR = Path(__file__).parent / "web"
-
 
 class DashboardConfig(pydantic.BaseModel):
     """Dashboard Server configuration."""
@@ -52,9 +50,12 @@ class DashboardConfig(pydantic.BaseModel):
     host: str = "127.0.0.1"
     port: int = 8090
     ws_port: int = 8091
-    monitor_interval: float = 0.25  # State check interval in seconds
-    log_buffer_size: int = 500  # Maximum number of log entries to keep
+    monitor_interval: float = 0.25
+    log_buffer_size: int = 500
 
+
+# Path to the web assets directory
+WEB_DIR = Path(__file__).parent / "web"
 
 __metadata__ = {
     "name": "Management Dashboard",
@@ -294,6 +295,13 @@ class WebSocketManager:
         # Get configuration info
         config_info = self._get_component_config_info(component)
 
+        # Get requires (dependencies)
+        requires = metadata.get("requires", set())
+        requires_names = [
+            req.__metadata__.get("name", "unknown")
+            for req in requires
+        ]
+
         return {
             "name": metadata.get("name", "unknown"),
             "version": metadata.get("version", "unknown"),
@@ -309,12 +317,26 @@ class WebSocketManager:
                 req.__metadata__.get("name", "unknown")
                 for req in internals.required_by
             ],
-            "config": config_info
+            "config": config_info,
+            # Internal data
+            "internals": {
+                "module": getattr(component, "__name__", "unknown"),
+                "wire": metadata.get("wire", False),
+                "requires": requires_names,
+                "initialized_by": [
+                    req.__metadata__.get("name", "unknown")
+                    for req in internals.initialized_by
+                ],
+            }
         }
 
     def _normalize_pydantic_schema(self, model: type[pydantic.BaseModel]) -> dict:
         # 1. Generate schema with a VALID ref_template
-        raw_schema = model.model_json_schema(ref_template="#/$defs/{model}")
+        # Suppress PydanticJsonSchemaWarning for non-serializable defaults
+        # (we handle default injection manually below)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=pydantic.json_schema.PydanticJsonSchemaWarning)
+            raw_schema = model.model_json_schema(ref_template="#/$defs/{model}")
 
         # 2. Get $defs for resolving references
         defs = raw_schema.get("$defs", {})
@@ -648,11 +670,17 @@ class WebSocketManager:
             plugin_name = data.get("name")
             result = await self._enable_plugin(plugin_name)
             await websocket.send(json.dumps(result))
+            # Refresh state for all clients after enable
+            if result.get("type") == "success":
+                await self.broadcast_state()
 
         elif action == "disable_plugin":
             plugin_name = data.get("name")
             result = await self._disable_plugin(plugin_name)
             await websocket.send(json.dumps(result))
+            # Refresh state for all clients after disable
+            if result.get("type") == "success":
+                await self.broadcast_state()
 
         elif action == "register_plugin":
             plugin_path = data.get("path")
@@ -739,8 +767,13 @@ class WebSocketManager:
         if not internals.is_initialized:
             return {"type": "info", "message": f"Plugin '{plugin_name}' is already disabled"}
 
-        if internals.required_by:
-            required_names = [r.__metadata__.get("name") for r in internals.required_by]
+        # Only block if there are initialized components that require this plugin
+        active_dependents = [
+            r for r in internals.required_by
+            if component_internals(r).is_initialized
+        ]
+        if active_dependents:
+            required_names = [r.__metadata__.get("name") for r in active_dependents]
             return {
                 "type": "error",
                 "error": f"Cannot disable plugin '{plugin_name}': required by {required_names}"

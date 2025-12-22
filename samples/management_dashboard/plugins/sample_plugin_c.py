@@ -5,65 +5,40 @@ A sample plugin that simulates a metrics collection service for testing
 the management dashboard's enable/disable functionality.
 """
 
-import time
+from typing import Literal
 
-from awioc import get_logger, inject
+import pydantic
+
+from awioc import get_logger, inject, get_config
+
+
+class MetricsConfig(pydantic.BaseModel):
+    """Configuration for the metrics plugin."""
+    __prefix__ = "metrics"
+
+    collection_interval: int = 10
+    export_format: Literal["prometheus", "json", "statsd"] = "prometheus"
+    retention_hours: int = 24
+    enable_histogram: bool = True
+    labels: dict[str, str] = pydantic.Field(default_factory=dict)
 
 __metadata__ = {
     "name": "metrics_plugin",
     "version": "0.5.0",
     "description": "Simulates a metrics collection service",
     "wire": True,
+    "config": MetricsConfig
 }
 
-_metrics: dict = {}
-_collecting = False
-_start_time = None
-
-
 @inject
-async def initialize(logger=get_logger()):
-    global _collecting, _start_time, _metrics
+async def initialize(logger=get_logger(), config=get_config(MetricsConfig)):
     logger.info("Metrics plugin: Starting collector...")
-    _metrics = {
-        "requests_total": 0,
-        "errors_total": 0,
-        "latency_sum": 0.0,
-    }
-    _start_time = time.time()
-    _collecting = True
+    logger.info(f"Metrics plugin: interval={config.collection_interval}s, format={config.export_format}")
+    logger.info(f"Metrics plugin: retention={config.retention_hours}h, histogram={config.enable_histogram}")
     logger.info("Metrics plugin: Collector started")
 
 
 @inject
 async def shutdown(logger=get_logger()):
-    global _collecting, _start_time
     logger.info("Metrics plugin: Stopping collector...")
-    _collecting = False
-    _start_time = None
     logger.info("Metrics plugin: Collector stopped")
-
-
-def is_collecting() -> bool:
-    return _collecting
-
-
-def record_request(latency: float = 0.0, error: bool = False):
-    if not _collecting:
-        return
-    _metrics["requests_total"] += 1
-    _metrics["latency_sum"] += latency
-    if error:
-        _metrics["errors_total"] += 1
-
-
-def get_metrics() -> dict:
-    if not _collecting:
-        return {}
-    uptime = time.time() - _start_time if _start_time else 0
-    return {
-        **_metrics,
-        "uptime_seconds": uptime,
-        "avg_latency": (_metrics["latency_sum"] / _metrics["requests_total"])
-        if _metrics["requests_total"] > 0 else 0,
-    }

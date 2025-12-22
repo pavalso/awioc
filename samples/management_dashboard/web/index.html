@@ -552,20 +552,11 @@
     <h2>Application State</h2>
     <div class="state-grid" id="state"></div>
 
-    <h2>Components & Plugins</h2>
-
     <!-- Filters for components/plugins -->
     <div class="items-filters">
-        <input id="itemSearch" oninput="renderCombinedItems()" placeholder="Search by name..." type="text">
+        <input id="itemSearch" oninput="renderAllSections()" placeholder="Search by name..." type="text">
 
-        <select class="small" id="itemKind" onchange="renderCombinedItems()">
-            <option value="">All kinds</option>
-            <option value="plugin">Plugin</option>
-            <option value="library">Library</option>
-            <option value="app">App</option>
-        </select>
-
-        <select class="small" id="itemStatus" onchange="renderCombinedItems()">
+        <select class="small" id="itemStatus" onchange="renderAllSections()">
             <option value="">All status</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
@@ -574,7 +565,16 @@
         <button class="btn btn-secondary small" onclick="clearItemFilters()">Clear</button>
     </div>
 
-    <!-- Register new plugin -->
+    <!-- App Section -->
+    <h2>Application</h2>
+    <div class="card-list" id="appSection"></div>
+
+    <!-- Libraries Section -->
+    <h2>Libraries</h2>
+    <div class="card-list" id="librariesSection"></div>
+
+    <!-- Plugins Section -->
+    <h2>Plugins</h2>
     <div class="register-plugin-section">
         <input accept=".py" id="pluginFile" onchange="uploadPluginFile()" style="display:none" type="file">
         <input id="pluginDir" onchange="uploadPluginDirectory()" style="display:none" type="file" webkitdirectory>
@@ -585,9 +585,7 @@
         </button>
         <span class="upload-status" id="uploadStatus"></span>
     </div>
-
-    <!-- Combined components + plugins grid -->
-    <div class="card-list" id="items"></div>
+    <div class="card-list" id="pluginsSection"></div>
 
     <h2>Logs</h2>
     <div class="logs-header">
@@ -654,6 +652,21 @@
         <div class="panel-section">
             <div class="panel-section-title">State</div>
             <div class="panel-state-box" id="panelStateBox">No state</div>
+        </div>
+
+        <div class="panel-section" id="panelInternalsSection">
+            <div class="panel-section-title">Internals</div>
+            <div class="panel-meta-grid" id="panelInternalsGrid">
+                <div class="panel-meta-item" style="grid-column: 1 / -1;">
+                    <span class="label">Module</span>
+                    <span class="value" id="panelModule" style="font-family: monospace; font-size: 0.85em;">-</span>
+                </div>
+                <div class="panel-meta-item">
+                    <span class="label">Auto-wire</span>
+                    <span class="value" id="panelWire">-</span>
+                </div>
+            </div>
+            <div id="panelDependencies" style="margin-top: 12px;"></div>
         </div>
 
         <div class="panel-section" id="panelConfigSection" style="display:none;">
@@ -898,32 +911,22 @@
         `;
     }
 
-    // Helper to produce combined array and apply UI filters
-    function getCombinedFiltered() {
+    // Helper to get all items combined with kind info
+    function getAllItemsCombined() {
         const combinedMap = new Map();
         (currentComponents || []).forEach(c => combinedMap.set(c.name, Object.assign({ _kind: 'component' }, c)));
         (currentPlugins || []).forEach(p => combinedMap.set(p.name, Object.assign({ _kind: 'plugin' }, p)));
+        return Array.from(combinedMap.values()).sort((a,b) => a.name.localeCompare(b.name));
+    }
 
-        const combined = Array.from(combinedMap.values()).sort((a,b) => a.name.localeCompare(b.name));
-
-        // read filters
+    // Apply filters to items
+    function applyFilters(items) {
         const nameSearch = (document.getElementById('itemSearch')?.value || '').toLowerCase().trim();
-        const kindFilter = (document.getElementById('itemKind')?.value || '').toLowerCase();
         const statusFilter = (document.getElementById('itemStatus')?.value || '').toLowerCase();
 
-        return combined.filter(item => {
+        return items.filter(item => {
             // name filter
             if (nameSearch && !item.name.toLowerCase().includes(nameSearch)) return false;
-
-            // kind filter
-            if (kindFilter) {
-                const itemKind = item._kind; // component | plugin
-                const itemType = String(item.type || '').toLowerCase(); // app | library
-
-                if (kindFilter === 'plugin' && itemKind !== 'plugin') return false;
-                if (kindFilter === 'library' && itemType !== 'library') return false;
-                if (kindFilter === 'app' && itemType !== 'app') return false;
-            }
 
             // status filter
             if (statusFilter) {
@@ -936,87 +939,87 @@
         });
     }
 
-    // Combine components + plugins -> single card grid. Buttons shown for items except type 'app'.
-    function renderCombinedItems(highlightName = null) {
-        const itemsDiv = document.getElementById('items');
+    // Get items by category (app, library, plugin)
+    function getItemsByCategory() {
+        const all = getAllItemsCombined();
+        const filtered = applyFilters(all);
 
-        const combined = getCombinedFiltered();
+        const apps = filtered.filter(item => String(item.type || '').toLowerCase() === 'app');
+        const libraries = filtered.filter(item => String(item.type || '').toLowerCase() === 'library');
+        const plugins = filtered.filter(item => item._kind === 'plugin');
 
-        if (combined.length === 0) {
-            itemsDiv.innerHTML = '<div class="card no-items">No components or plugins match the filters</div>';
+        return { apps, libraries, plugins };
+    }
+
+    // Render a single item card
+    function renderItemCard(item, highlightName = null) {
+        const statusClass = getStatusClass(item);
+        const statusLabel = getStatusLabel(item);
+        const highlight = item.name === highlightName ? 'state-change' : '';
+        const isActive = item.state && item.state.is_initialized;
+        const disabledClass = !isActive ? 'disabled' : '';
+        const isTransitioning = item.state && (item.state.is_initializing || item.state.is_shutting_down);
+        const rawType = item.type || (item._kind === 'plugin' ? 'plugin' : 'unknown');
+        const safeType = String(rawType).replace(/[^a-z0-9_-]/ig, '').toLowerCase();
+
+        const escapedNameForJs = escapeJs(item.name);
+        const kindLabel = item._kind === 'plugin' ? 'Plugin' : 'Component';
+
+        const lowerType = String(rawType).toLowerCase();
+        const isApp = lowerType === 'app';
+        const isLibrary = lowerType === 'library';
+
+        const statusHtml = `<span class="status ${statusClass}">${statusLabel}</span>`;
+
+        // Buttons: if item is an app or library => no enable/disable shown
+        let actionsHtml = '';
+        if (!isApp && !isLibrary) {
+            if (isTransitioning) {
+                actionsHtml = `<button class="btn" onpointerdown="event.stopPropagation()" disabled>Please wait...</button>`;
+            } else {
+                actionsHtml = isActive
+                    ? `<button class="btn btn-disable" onpointerdown="event.stopPropagation()" onclick="disableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Disable</button>`
+                    : `<button class="btn btn-enable" onpointerdown="event.stopPropagation()" onclick="enableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Enable</button>`;
+            }
+        }
+
+        return `
+        <div class="card card-item ${highlight} ${disabledClass}" data-item="${escapeHtml(item.name)}" data-kind="${escapeHtml(kindLabel)}">
+            <div class="card-header">
+                <div class="component-name">${escapeHtml(item.name)}</div>
+                <div class="component-version">v${escapeHtml(item.version || '')}</div>
+            </div>
+
+            <div class="component-desc">${escapeHtml(item.description || '')}</div>
+
+            <div class="meta-row">
+                <div class="meta-left"></div>
+                <div class="meta-right">
+                    ${statusHtml}
+                </div>
+            </div>
+
+            <div class="card-actions">
+                ${actionsHtml}
+            </div>
+        </div>
+        `;
+    }
+
+    // Render items into a section container
+    function renderSection(containerId, items, emptyMessage, highlightName = null) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        if (items.length === 0) {
+            container.innerHTML = `<div class="card no-items">${emptyMessage}</div>`;
             return;
         }
 
-        itemsDiv.innerHTML = combined.map(item => {
-            const statusClass = getStatusClass(item);
-            const statusLabel = getStatusLabel(item);
-            const highlight = item.name === highlightName ? 'state-change' : '';
-            const isActive = item.state && item.state.is_initialized;
-            const disabledClass = !isActive ? 'disabled' : '';
-            const isTransitioning = item.state && (item.state.is_initializing || item.state.is_shutting_down);
-            const rawType = item.type || (item._kind === 'plugin' ? 'plugin' : 'unknown');
-            const safeType = String(rawType).replace(/[^a-z0-9_-]/ig, '').toLowerCase();
+        container.innerHTML = items.map(item => renderItemCard(item, highlightName)).join('');
 
-            // If plugin has required_by, honor it; for components treat required_by as empty
-            const requiredDisabled = (item.required_by && item.required_by.length > 0) ? 'disabled title="Required by other components"' : '';
-
-            const escapedNameForJs = escapeJs(item.name);
-
-            // show kind label (Plugin / Component) next to type if desired
-            const kindLabel = item._kind === 'plugin' ? 'Plugin' : 'Component';
-
-            // Determine whether to show enable/disable controls:
-            // DO NOT show for apps or libraries
-            const lowerType = String(rawType).toLowerCase();
-            const isApp = lowerType === 'app';
-            const isLibrary = lowerType === 'library';
-
-            // Build meta row (type badge left, status right)
-            const typeBadgeHtml = `<span class="type-badge type-${safeType}">${escapeHtml(rawType)}</span>`;
-            const statusHtml = `<span class="status ${statusClass}">${statusLabel}</span>`;
-
-            // Buttons: if item is an app => no enable/disable shown. If transitioning => show please wait (unless app).
-            let actionsHtml = '';
-            if (!isApp && !isLibrary) {
-                if (isTransitioning) {
-                    actionsHtml = `<button class="btn" onpointerdown="event.stopPropagation()" disabled>Please wait...</button>`;
-                } else {
-                    actionsHtml = isActive
-                        ? `<button class="btn btn-disable" onpointerdown="event.stopPropagation()" onclick="disableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Disable</button>`
-                        : `<button class="btn btn-enable" onpointerdown="event.stopPropagation()" onclick="enableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Enable</button>`;
-                }
-            } else {
-                // for apps and libraries we intentionally show no enable/disable controls
-                actionsHtml = '';
-            }
-
-            return `
-            <div class="card card-item ${highlight} ${disabledClass}" data-item="${escapeHtml(item.name)}" data-kind="${escapeHtml(kindLabel)}">
-                <div class="card-header">
-                    <div class="component-name">${escapeHtml(item.name)}</div>
-                    <div class="component-version">v${escapeHtml(item.version || '')} ${/* optional kind label small */ ''}</div>
-                </div>
-
-                <div class="component-desc">${escapeHtml(item.description || '')}</div>
-
-                <div class="meta-row">
-                    <div class="meta-left">
-                        ${typeBadgeHtml}
-                    </div>
-                    <div class="meta-right">
-                        ${statusHtml}
-                    </div>
-                </div>
-
-                <div class="card-actions">
-                    ${actionsHtml}
-                </div>
-            </div>
-            `;
-        }).join('');
-
-        // add click handlers to open details panel
-        Array.from(itemsDiv.querySelectorAll('.card-item')).forEach(el => {
+        // Add click handlers to open details panel
+        Array.from(container.querySelectorAll('.card-item')).forEach(el => {
             el.addEventListener('click', () => {
                 const name = el.getAttribute('data-item');
                 openDetails(name);
@@ -1025,17 +1028,30 @@
 
         if (highlightName) {
             setTimeout(() => {
-                const el = itemsDiv.querySelector(`[data-item="${highlightName}"]`);
+                const el = container.querySelector(`[data-item="${highlightName}"]`);
                 if (el) el.classList.remove('state-change');
             }, 600);
         }
     }
 
+    // Render all sections (app, libraries, plugins)
+    function renderAllSections(highlightName = null) {
+        const { apps, libraries, plugins } = getItemsByCategory();
+
+        renderSection('appSection', apps, 'No application found', highlightName);
+        renderSection('librariesSection', libraries, 'No libraries match the filters', highlightName);
+        renderSection('pluginsSection', plugins, 'No plugins match the filters', highlightName);
+    }
+
+    // Backwards compatibility alias
+    function renderCombinedItems(highlightName = null) {
+        renderAllSections(highlightName);
+    }
+
     function clearItemFilters() {
         const s = document.getElementById('itemSearch'); if (s) s.value = '';
-        const k = document.getElementById('itemKind'); if (k) k.value = '';
         const st = document.getElementById('itemStatus'); if (st) st.value = '';
-        renderCombinedItems();
+        renderAllSections();
     }
 
     // Logs functions (list view)
@@ -1317,6 +1333,72 @@
         const stateBox = document.getElementById('panelStateBox');
         stateBox.textContent = JSON.stringify(item.state || {}, null, 2);
 
+        // Populate internal data
+        const internals = item.internals || {};
+        document.getElementById('panelModule').textContent = internals.module || '-';
+        document.getElementById('panelWire').textContent = internals.wire ? 'Yes' : 'No';
+
+        // Render dependencies section
+        const depsContainer = document.getElementById('panelDependencies');
+        let depsHtml = '';
+
+        // Helper to create clickable badge
+        const clickableBadge = (name, badgeClass) =>
+            `<span class="type-badge ${badgeClass} dep-link" style="font-size: 0.8em; padding: 4px 8px; cursor: pointer;" data-component="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
+
+        // Requires (dependencies)
+        const requires = internals.requires || [];
+        if (requires.length > 0) {
+            depsHtml += `
+                <div style="margin-bottom: 10px;">
+                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Depends on</span>
+                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        ${requires.map(name => clickableBadge(name, 'type-library')).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Required by (dependents)
+        const requiredBy = item.required_by || [];
+        if (requiredBy.length > 0) {
+            depsHtml += `
+                <div style="margin-bottom: 10px;">
+                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Required by</span>
+                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        ${requiredBy.map(name => clickableBadge(name, 'type-plugin')).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initialized by
+        const initializedBy = internals.initialized_by || [];
+        if (initializedBy.length > 0) {
+            depsHtml += `
+                <div style="margin-bottom: 10px;">
+                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Initialized by</span>
+                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        ${initializedBy.map(name => clickableBadge(name, 'type-app')).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (!depsHtml) {
+            depsHtml = '<span style="color: #666; font-size: 0.9em;">No dependencies</span>';
+        }
+
+        depsContainer.innerHTML = depsHtml;
+
+        // Add click handlers to dependency badges
+        depsContainer.querySelectorAll('.dep-link').forEach(el => {
+            el.addEventListener('click', () => {
+                const componentName = el.getAttribute('data-component');
+                openDetails(componentName);
+            });
+        });
+
         // Render configuration form if item has config
         renderConfigForm(item);
 
@@ -1423,21 +1505,42 @@
                     label.textContent = fieldTitle;
                     fieldDiv.appendChild(label);
 
-                    const input = document.createElement('input');
-                    input.id = `config_${fieldName}`;
-                    input.name = fieldName;
-                    input.dataset.configPath = fieldName;
-                    input.dataset.configType = fieldType;
+                    // Check if field has enum values (from Literal type)
+                    if (fieldSchema.enum && Array.isArray(fieldSchema.enum)) {
+                        const select = document.createElement('select');
+                        select.id = `config_${fieldName}`;
+                        select.name = fieldName;
+                        select.dataset.configPath = fieldName;
+                        select.dataset.configType = fieldType;
 
-                    if (fieldType === 'integer' || fieldType === 'number') {
-                        input.type = 'number';
-                        if (fieldType === 'number') input.step = 'any';
+                        fieldSchema.enum.forEach(enumValue => {
+                            const option = document.createElement('option');
+                            option.value = enumValue;
+                            option.textContent = enumValue;
+                            if (effectiveValue === enumValue) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+
+                        fieldDiv.appendChild(select);
                     } else {
-                        input.type = 'text';
-                    }
+                        const input = document.createElement('input');
+                        input.id = `config_${fieldName}`;
+                        input.name = fieldName;
+                        input.dataset.configPath = fieldName;
+                        input.dataset.configType = fieldType;
 
-                    input.value = effectiveValue !== undefined ? effectiveValue : '';
-                    fieldDiv.appendChild(input);
+                        if (fieldType === 'integer' || fieldType === 'number') {
+                            input.type = 'number';
+                            if (fieldType === 'number') input.step = 'any';
+                        } else {
+                            input.type = 'text';
+                        }
+
+                        input.value = effectiveValue !== undefined ? effectiveValue : '';
+                        fieldDiv.appendChild(input);
+                    }
                 }
 
                 if (fieldDescription) {
@@ -1649,7 +1752,7 @@
             const valueDiv = document.createElement('div');
             valueDiv.className = 'config-tree-item-value';
 
-            const input = createValueInput(itemPath, itemType, value);
+            const input = createValueInput(itemPath, itemType, value, itemSchema);
             valueDiv.appendChild(input);
             itemDiv.appendChild(valueDiv);
 
@@ -1911,7 +2014,7 @@
             const valueDiv = document.createElement('div');
             valueDiv.className = 'config-tree-item-value';
 
-            const input = createValueInput(itemPath, valueType, value);
+            const input = createValueInput(itemPath, valueType, value, keySchema);
             valueDiv.appendChild(input);
             itemDiv.appendChild(valueDiv);
 
@@ -1934,7 +2037,26 @@
         }
     }
 
-    function createValueInput(path, type, value) {
+    function createValueInput(path, type, value, schema = null) {
+        // Check if schema has enum values (from Literal type)
+        if (schema && schema.enum && Array.isArray(schema.enum)) {
+            const select = document.createElement('select');
+            select.dataset.configPath = path;
+            select.dataset.configType = type;
+
+            schema.enum.forEach(enumValue => {
+                const option = document.createElement('option');
+                option.value = enumValue;
+                option.textContent = enumValue;
+                if (value === enumValue) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            return select;
+        }
+
         const input = document.createElement('input');
         input.dataset.configPath = path;
         input.dataset.configType = type;
@@ -2185,7 +2307,7 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetails(); });
 
     // Expose helpers for debugging/demo
-    window._debug = { renderCombinedItems, addLogEntry, renderLogs, getCombinedFiltered, openDetails, closeDetails };
+    window._debug = { renderAllSections, addLogEntry, renderLogs, getItemsByCategory, openDetails, closeDetails };
 
     // Initialize WebSocket connection
     connectWebSocket();
