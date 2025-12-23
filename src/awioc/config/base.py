@@ -7,17 +7,16 @@ from cachetools import cached
 from .registry import _CONFIGURATIONS
 
 _P_type = TypeVar("_P_type", bound=pydantic.BaseModel)
-_S_type = TypeVar("_S_type", bound=type["Settings"])
 
 
 class Settings(settings.BaseSettings):
     model_config = settings.SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
         env_nested_delimiter="_",
         env_nested_max_split=1,
         env_prefix="",
+        extra="ignore",
         cli_avoid_json=True,
         validate_default=True
     )
@@ -31,7 +30,7 @@ class Settings(settings.BaseSettings):
         raise ValueError(f"Configuration for type {config_type} not found")
 
     @classmethod
-    def load_config(cls: type[_S_type]) -> _S_type:
+    def load_config(cls) -> "Settings":
         mapped_fields = {
             value.__name__: pydantic.Field(default_factory=value, alias=key)
             for key, value in _CONFIGURATIONS.items()

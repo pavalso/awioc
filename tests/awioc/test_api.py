@@ -1,5 +1,3 @@
-import pytest
-
 from src.awioc import api
 
 
@@ -57,10 +55,8 @@ class TestApiExports:
     def test_bootstrap_exports(self):
         """Test bootstrap exports."""
         assert hasattr(api, 'initialize_ioc_app')
-        assert hasattr(api, 'create_container')
         assert hasattr(api, 'compile_ioc_app')
         assert hasattr(api, 'reconfigure_ioc_app')
-        assert hasattr(api, 'reload_configuration')
 
     def test_loader_exports(self):
         """Test loader exports."""
@@ -80,7 +76,6 @@ class TestModuleInit:
 
         # Bootstrap
         assert hasattr(awioc, 'initialize_ioc_app')
-        assert hasattr(awioc, 'create_container')
 
         # Lifecycle
         assert hasattr(awioc, 'initialize_components')

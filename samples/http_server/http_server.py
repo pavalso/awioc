@@ -30,12 +30,30 @@ class ServerConfig(pydantic.BaseModel):
     """HTTP Server configuration."""
     __prefix__ = "server"
 
-    host: str = "127.0.0.1"
-    port: int = 8080
-    root_dir: Path = Path("./public")
-    allow_upload: bool = False
-    allow_delete: bool = False
-    allow_zip_download: bool = False
+    host: str = pydantic.Field(
+        default="127.0.0.1",
+        description="The hostname or IP address to bind the server to"
+    )
+    port: int = pydantic.Field(
+        default=8080,
+        description="The port number to listen on"
+    )
+    root_dir: Path = pydantic.Field(
+        default=Path("./public"),
+        description="The root directory to serve files from"
+    )
+    allow_upload: bool = pydantic.Field(
+        default=False,
+        description="Allow users to upload files via the web interface"
+    )
+    allow_delete: bool = pydantic.Field(
+        default=False,
+        description="Allow users to delete files and folders via the web interface"
+    )
+    allow_zip_download: bool = pydantic.Field(
+        default=False,
+        description="Allow users to download folders as ZIP archives"
+    )
 
 
 __metadata__ = {

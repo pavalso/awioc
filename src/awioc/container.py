@@ -54,12 +54,13 @@ class ContainerInterface:
         )
 
     @property
-    def app_config_model(self):
+    def app_config_model(self) -> type[IOCBaseConfig]:
         app = self.provided_app()
         meta = app.__metadata__
         if "base_config" in meta and meta["base_config"] is not None:
             cfg_cls = meta["base_config"]
-            assert issubclass(cfg_cls, Settings)
+            assert issubclass(cfg_cls,
+                              IOCBaseConfig), f"App base_config must be subclass of IOCBaseConfig, got: {cfg_cls}"
             return cfg_cls
         return IOCBaseConfig
 

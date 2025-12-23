@@ -23,7 +23,6 @@ class Internals:
     is_initialized: bool = False
     is_initializing: bool = False
     is_shutting_down: bool = False
-    ioc_components_definition: Optional[type[pydantic.BaseModel]] = None
     ioc_config: Optional[type["Settings"]] = None
     type: ComponentTypes = ComponentTypes.COMPONENT
 

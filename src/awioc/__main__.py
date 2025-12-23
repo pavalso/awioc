@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 from . import (
-    compile_ioc_app,
     initialize_ioc_app,
     initialize_components,
     shutdown_components,
@@ -126,8 +125,6 @@ async def run(cli_config: CLIConfig):
 
     api = initialize_ioc_app()
     app = api.provided_app()
-
-    compile_ioc_app(api)
 
     try:
         await initialize_components(app)

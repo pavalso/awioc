@@ -1,11 +1,33 @@
-app: management_dashboard
-plugins:
-  - plugins/sample_plugin_a.py
-  - plugins/sample_plugin_b.py
-  - plugins/sample_plugin_c.py
+components:
+  app: __init__
+  libraries: { }
+  plugins:
+    - plugins\sample_plugin_a.py
+    - plugins\sample_plugin_b.py
+    - plugins\sample_plugin_c.py
 dashboard:
   host: 127.0.0.1
   port: 8090
   ws_port: 8091
   monitor_interval: 0.25
   log_buffer_size: 500
+metrics:
+  collection_interval: 10
+  export_format: prometheus
+  retention_hours: 24
+  enable_histogram: true
+  labels: { }
+cache:
+  backend: redis
+  max_size: 1000
+  default_ttl: 3600
+  eviction_policy: lfu
+  compression: false
+database:
+  host: localhost
+  port: 5432
+  database: app_db
+  pool_size: 5
+  timeout: 30
+  ssl_mode: prefer
+  max_overflow: 5

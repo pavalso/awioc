@@ -10,6 +10,7 @@ A web server that exposes endpoints for:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import tempfile
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from threading import Thread, Lock
-from typing import Any, Optional, Set, Dict, List, Deque
+from typing import Any, Optional, Set, Dict, List, Deque, Iterable
 from urllib.parse import urlparse
 
 import pydantic
@@ -47,23 +48,30 @@ class DashboardConfig(pydantic.BaseModel):
     """Dashboard Server configuration."""
     __prefix__ = "dashboard"
 
-    host: str = "127.0.0.1"
-    port: int = 8090
-    ws_port: int = 8091
-    monitor_interval: float = 0.25
-    log_buffer_size: int = 500
+    host: str = pydantic.Field(
+        default="127.0.0.1",
+        description="The hostname or IP address to bind the HTTP server to"
+    )
+    port: int = pydantic.Field(
+        default=8090,
+        description="The port number for the HTTP dashboard interface"
+    )
+    ws_port: int = pydantic.Field(
+        default=8091,
+        description="The port number for the WebSocket server (real-time updates)"
+    )
+    monitor_interval: float = pydantic.Field(
+        default=0.25,
+        description="How often to check for component state changes (in seconds)"
+    )
+    log_buffer_size: int = pydantic.Field(
+        default=500,
+        description="Maximum number of log entries to keep in memory for the UI"
+    )
 
 
 # Path to the web assets directory
 WEB_DIR = Path(__file__).parent / "web"
-
-__metadata__ = {
-    "name": "Management Dashboard",
-    "version": "1.3.0",
-    "description": "Management Dashboard for IOC Components with real-time state monitoring and log streaming",
-    "wire": True,
-    "config": DashboardConfig
-}
 
 
 @dataclass
@@ -435,12 +443,31 @@ class WebSocketManager:
         if not prefix:
             return None
 
+        values = {}
         try:
+            # First try to get config from the container
             current_config = self._container.provided_config(config_model)
-            values = current_config.model_dump() if current_config else {}
-            values = self._make_json_serializable(values)
+            if current_config:
+                values = current_config.model_dump()
+                values = self._make_json_serializable(values)
         except Exception:
-            values = {}
+            pass
+
+        # Also try to read directly from the config file for the most up-to-date values
+        try:
+            ioc_config = self._container.ioc_config_model
+            config_path = ioc_config.config_path
+            if config_path and config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    yaml_content = yaml.safe_load(f) or {}
+                # Get values under the prefix key
+                if prefix in yaml_content:
+                    file_values = yaml_content[prefix]
+                    if isinstance(file_values, dict):
+                        # Merge file values with container values (file takes precedence)
+                        values = {**values, **self._make_json_serializable(file_values)}
+        except Exception:
+            pass
 
         schema = self._normalize_pydantic_schema(config_model)
 
@@ -815,8 +842,10 @@ class WebSocketManager:
                 return {"type": "info", "message": f"Plugin '{plugin_name}' is already registered"}
 
             # Register and initialize the plugin in the main event loop
+            # Note: This only registers the plugin in memory, it does NOT modify ioc.yaml
             async def register_and_init():
                 await register_plugin(self._container, plugin)
+                # Reconfigure wires up dependencies for the new plugin
                 reconfigure_ioc_app(self._container, (plugin,))
                 await initialize_components(plugin)
 
@@ -851,12 +880,21 @@ class WebSocketManager:
             return {"type": "error", "error": "Filename and content required"}
 
         try:
+            # Decode base64 content (sent from browser's FileReader.readAsDataURL)
+            raw_bytes = base64.b64decode(content)
+
+            # Try UTF-8 first, fall back to latin-1 (which can decode any byte sequence)
+            try:
+                decoded_content = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded_content = raw_bytes.decode("latin-1")
+
             # Create a temporary directory for the plugin
             temp_dir = Path(tempfile.mkdtemp(prefix="plugin_"))
             plugin_path = temp_dir / filename
 
             # Write the file
-            plugin_path.write_text(content, encoding="utf-8")
+            plugin_path.write_text(decoded_content, encoding="utf-8")
 
             # Register the plugin
             return await self._register_plugin_from_path(str(plugin_path))
@@ -868,7 +906,7 @@ class WebSocketManager:
     async def _upload_plugin_directory(
             self,
             dirname: str,
-            files: Dict[str, str],
+            files: List[Dict[str, str]],
             logger=get_logger()
     ) -> dict:
         """Handle directory plugin upload."""
@@ -880,10 +918,24 @@ class WebSocketManager:
             temp_dir = Path(tempfile.mkdtemp(prefix="plugin_"))
 
             # Write all files preserving directory structure
-            for relative_path, content in files.items():
+            for file_info in files:
+                relative_path = file_info.get("path", "")
+                content_b64 = file_info.get("content", "")
+                if not relative_path or not content_b64:
+                    continue
+
+                # Decode base64 content
+                raw_bytes = base64.b64decode(content_b64)
+
+                # Try UTF-8 first, fall back to latin-1 (which can decode any byte sequence)
+                try:
+                    decoded_content = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    decoded_content = raw_bytes.decode("latin-1")
+
                 file_path = temp_dir / relative_path
                 file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(content, encoding="utf-8")
+                file_path.write_text(decoded_content, encoding="utf-8")
 
             # The plugin directory is the first component of the path
             plugin_dir = temp_dir / dirname
@@ -899,6 +951,7 @@ class WebSocketManager:
             self,
             component_name: str,
             config_values: Dict[str, Any],
+            ioc_api=get_container_api(),
             logger=get_logger()
     ) -> dict:
         """Save configuration for a component to the ioc.yaml file."""
@@ -924,41 +977,55 @@ class WebSocketManager:
             if not config_model:
                 return {"type": "error", "error": f"Component '{component_name}' has no configuration"}
 
+            if isinstance(config_model, Iterable):
+                config_model = config_model[0]  # Take the first model if multiple
+
             prefix = getattr(config_model, "__prefix__", None)
             if not prefix:
-                return {"type": "error", "error": f"Component '{component_name}' config has no prefix"}
+                return {"type": "error", "error": f"Configuration model for '{component_name}' has no prefix"}
 
-            # Validate the new config values against the model
-            try:
-                validated_config = config_model(**config_values)
-            except pydantic.ValidationError as e:
-                return {"type": "error", "error": f"Invalid configuration: {e}"}
+            # Load existing ioc.yaml
+            ioc_config = ioc_api.ioc_config_model
+            config_path = ioc_config.config_path
+            if not config_path or not config_path.exists():
+                return {"type": "error", "error": "IOC configuration file not found"}
 
-            # Get the config file path from IOCBaseConfig
-            try:
-                ioc_config = self._container.ioc_config_model
-                ioc_yaml_path = ioc_config.config_path
-            except Exception:
-                return {"type": "error", "error": "Could not get config file path from IOCBaseConfig"}
+            provided_config = ioc_api.provided_config(config_model)  # Ensure config model is registered
 
-            if not ioc_yaml_path.exists():
-                return {"type": "error", "error": f"Config file not found: {ioc_yaml_path}"}
+            # Update provided config instance
+            for key, value in config_values.items():
+                if hasattr(provided_config, key):
+                    setattr(provided_config, key, value)
 
-            # Read current yaml content
-            with open(ioc_yaml_path, 'r', encoding='utf-8') as f:
-                yaml_content = yaml.safe_load(f) or {}
+            # Recursively, check all values, if they are not basic types, convert to strings
+            def serialize_values(obj):
+                if isinstance(obj, dict):
+                    return {k: serialize_values(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [serialize_values(v) for v in obj]
+                elif isinstance(obj, Path):
+                    return str(obj)
+                elif hasattr(obj, '__str__') and not isinstance(obj, (str, int, float, bool, type(None))):
+                    # For other non-serializable objects, convert to string
+                    try:
+                        json.dumps(obj)
+                        return obj
+                    except (TypeError, ValueError):
+                        return str(obj)
+                return obj
 
-            # Update the config section
-            yaml_content[prefix] = validated_config.model_dump()
+            # Read existing YAML file to preserve other sections
+            with open(config_path, 'r', encoding='utf-8') as f:
+                existing_config = yaml.safe_load(f) or {}
 
-            for key, value in yaml_content[prefix].items():
-                # Check each value, if it is not a basic type, convert to string
-                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
-                    yaml_content[prefix][key] = str(value)
+            # Update only the specific component's config section (by prefix)
+            component_config_dict = provided_config.model_dump(by_alias=True)
+            component_config_dict = serialize_values(component_config_dict)
+            existing_config[prefix] = component_config_dict
 
-            # Write back to file
-            with open(ioc_yaml_path, 'w', encoding='utf-8') as f:
-                yaml.dump(yaml_content, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            # Write back the updated config
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(existing_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
             logger.info(f"Saved configuration for '{component_name}' (prefix: {prefix})")
             return {"type": "success",
@@ -1334,9 +1401,3 @@ class ManagementDashboardApp:
         if self._ws_thread:
             self._ws_thread.join(timeout=2)
             self._ws_thread = None
-
-
-management_dashboard_app = ManagementDashboardApp()
-initialize = management_dashboard_app.initialize
-shutdown = management_dashboard_app.shutdown
-wait = management_dashboard_app.wait

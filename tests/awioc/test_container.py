@@ -2,6 +2,7 @@ import logging
 
 import pytest
 from dependency_injector import providers
+
 from src.awioc.components.metadata import Internals, ComponentTypes
 from src.awioc.config.base import Settings
 from src.awioc.config.models import IOCBaseConfig
@@ -66,7 +67,6 @@ class TestContainerInterface:
                 "name": "test_app",
                 "version": "1.0.0",
                 "description": "Test app",
-                "base_config": Settings,
                 "requires": set()
             }
 
@@ -206,7 +206,7 @@ class TestContainerInterface:
         interface.set_app(mock_app)
 
         config_model = interface.app_config_model
-        assert config_model == Settings
+        assert config_model is IOCBaseConfig
 
     def test_app_config_model_returns_default_when_not_defined(self, interface):
         """Test app_config_model raises when not defined."""

@@ -2,258 +2,348 @@
 <html>
 <head>
     <meta charset="utf-8"/>
-    <title>IOC Management Dashboard — Combined Items (title spacing, moved tag/status, apps no controls)</title>
+    <title>IOC Management Dashboard</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
-        h1 { color: #00d9ff; margin-bottom: 20px; }
-        h2 { color: #00d9ff; margin: 20px 0 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
-        .container { max-width: 1200px; margin: 0 auto; position: relative; }
-
-        /* Base card */
-        .card { background: #16213e; border-radius: 10px; padding: 18px; margin-bottom: 15px; transition: all 0.3s ease; display:flex; flex-direction:column; }
-        .card.updating { animation: pulse-border 0.5s ease; }
-        .card.state-change { box-shadow: 0 0 20px rgba(0, 217, 255, 0.5); }
-        @keyframes pulse-border { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 20px rgba(0, 217, 255, 0.5); } }
-
-        /* Card-list layout with roomy cards */
-        .card-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
-        .card-item { padding: 20px; border-radius: 12px; background: linear-gradient(180deg,#132041,#16213e); box-shadow: 0 6px 18px rgba(0,0,0,0.6); transition: transform .12s ease, box-shadow .12s ease; min-height: 160px; cursor: pointer; }
-        .card-item:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(0,0,0,0.7); }
-
-        /* Header / title area: give title more room and allow wrapping */
-        .card-header { display:flex; flex-direction:column; gap:8px; }
-        .component-name { font-weight: 800; color: #00d9ff; font-size: 1.18em; line-height: 1.15; word-break: break-word; }
-        .component-version { color: #99a; font-size: 0.92em; margin-top: 2px; }
-        .component-desc { color: #cfcfcf; font-size: 0.98em; margin-top: 10px; display:block; max-height: 6.8em; overflow-y: auto; overflow-x: hidden; text-overflow: ellipsis; line-height: 1.25; padding-right:8px; }
-        .component-desc::-webkit-scrollbar { width: 10px; }
-        .component-desc::-webkit-scrollbar-track { background: transparent; }
-        .component-desc::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 6px; }
-
-        /* visually indicate disabled/inactive cards (background only, keep text readable) */
-        .card-item.disabled {
-            background: linear-gradient(180deg, #0e1428, #111a33);
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05), 0 4px 12px rgba(0,0,0,0.6);
-        }
-        .card-item.disabled:hover {
-            transform: none;
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 6px 14px rgba(0,0,0,0.7);
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* Meta row: moved tag & status into a separate row below description */
-        .meta-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; }
-        .meta-left { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-        .meta-right { display:flex; gap:10px; align-items:center; }
-
-        .type-badge { display: inline-block; padding: 6px 12px; border-radius: 14px; font-size: 0.82em; white-space: nowrap; font-weight: 800; }
-        .type-app { background: #7c4dff; color: #fff; }
-        .type-plugin { background: #00bcd4; color: #000; }
-        .type-library { background: #ff9800; color: #000; }
-        .type-framework { background: #e91e63; color: #fff; }
-        .type-component { background: #4caf50; color: #fff; }
-        .type-unknown { background: #607d8b; color: #fff; }
-
-        .status { display: inline-block; padding: 8px 12px; border-radius: 14px; font-size: 0.88em; font-weight: 800; min-width: 120px; text-align:center; }
-        .status.active { background: #00c853; color: #000; }
-        .status.inactive { background: #ff5252; color: #fff; }
-        .status.initializing { background: #ffc107; color: #000; animation: pulse 1s infinite; }
-        .status.shutting_down { background: #ff9800; color: #000; animation: pulse 1s infinite; }
-
-        /* Place actions at the bottom of the card */
-        .card-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 14px; }
-        .btn { padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer; transition: all 0.18s ease; font-weight: 700; font-size: 0.95em; }
-        .btn-enable { background: #00c853; color: #000; }
-        .btn-disable { background: #ff5252; color: #fff; }
-        .btn-secondary { background: #455a64; color: #fff; }
-        .btn-danger { background: #ff5252; color: #fff; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn:hover:not(:disabled) { transform: scale(1.03); }
-
-        .state-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 6px; }
-        .state-item { background: #0f3460; padding: 16px; border-radius: 10px; text-align: center; transition: all 0.3s ease; }
-        .state-item.updated { animation: highlight 0.5s ease; }
-        .state-item.config-file { grid-column: 1 / -1; text-align: left; display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
-        .state-item.config-file .state-label { margin: 0; white-space: nowrap; }
-        @keyframes highlight { 0%, 100% { background: #0f3460; } 50% { background: #1a4a7a; } }
-        .state-value { font-size: 2em; color: #00d9ff; transition: all 0.3s ease; }
-        .state-value-path { font-size: 0.9em; color: #00d9ff; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-        .state-label { color: #bbb; font-size: 0.95em; }
-
-        .header-row { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
-        .refresh-btn { background: #00d9ff; color: #000; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; }
-        .connection-status { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 6px; font-size: 0.95em; }
+        /* ========== TOP PANEL ========== */
+        .top-panel {
+            background: linear-gradient(180deg, #0d1a2d 0%, #132041 100%);
+            border-bottom: 1px solid rgba(0, 217, 255, 0.15);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            flex-shrink: 0;
+        }
+        .app-branding {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .app-branding h1 {
+            color: #00d9ff;
+            font-size: 1.4em;
+            font-weight: 700;
+        }
+        .app-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .app-info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .app-info-item .label {
+            color: #666;
+            font-size: 0.8em;
+            text-transform: uppercase;
+        }
+        .app-info-item .value {
+            color: #ccc;
+            font-size: 0.95em;
+            font-weight: 500;
+        }
+        .app-stats {
+            display: flex;
+            gap: 16px;
+        }
+        .stat-badge {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 8px 14px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stat-badge .stat-value {
+            color: #00d9ff;
+            font-weight: 700;
+            font-size: 1.1em;
+        }
+        .stat-badge .stat-label {
+            color: #888;
+            font-size: 0.8em;
+        }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
         .connection-status.connected { background: rgba(0, 200, 83, 0.12); color: #00c853; }
         .connection-status.disconnected { background: rgba(255, 82, 82, 0.08); color: #ff5252; }
         .connection-status.connecting { background: rgba(255, 193, 7, 0.08); color: #ffc107; }
-        .status-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
         .status-dot.connected { background: #00c853; }
         .status-dot.disconnected { background: #ff5252; }
         .status-dot.connecting { background: #ffc107; animation: pulse 1s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-        .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; }
-        .toast { padding: 15px 20px; border-radius: 8px; color: #fff; font-size: 0.95em; opacity: 0; transform: translateX(100px); transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; }
-        .toast.show { opacity: 1; transform: translateX(0); }
-        .toast.success { background: #00c853; }
-        .toast.error { background: #ff5252; }
-        .toast.info { background: #00bcd4; }
-        .toast.state-change { background: #7c4dff; }
-        .toast-icon { font-size: 1.2em; }
-
-        /* Logs section styles (list view) */
-        .logs-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-        .logs-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .logs-filters input[type="text"] { background: #0f3460; border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #eee; min-width: 220px; font-size: 0.95em; }
-        .logs-filters input[type="text"]::placeholder { color: #666; }
-        .logs-filters select { background: #0f3460; border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #eee; cursor: pointer; font-size: 0.95em; }
-        .logs-actions { display: flex; gap: 10px; align-items: center; }
-        .logs-container { background: #0a0a1a; border-radius: 10px; height: 420px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em; padding: 8px; }
-        .logs-container::-webkit-scrollbar { width: 10px; }
-        .logs-container::-webkit-scrollbar-track { background: #1a1a2e; }
-        .logs-container::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
-        .log-entry { padding: 10px 12px; border-bottom: 1px solid #141424; display: flex; gap: 12px; align-items: center; transition: background 0.18s ease; }
-        .log-entry:hover { background: rgba(0, 217, 255, 0.03); }
-        .log-entry.new { animation: log-flash 0.5s ease; }
-        @keyframes log-flash { 0% { background: rgba(0, 217, 255, 0.12); } 100% { background: transparent; } }
-        .log-time { color: #888; white-space: nowrap; min-width: 90px; font-size: 0.9em; }
-        .log-level { padding: 4px 8px; border-radius: 6px; font-size: 0.85em; min-width: 68px; text-align: center; font-weight: 700; }
-        .log-level.DEBUG { background: #455a64; color: #fff; }
-        .log-level.INFO { background: #2196f3; color: #fff; }
-        .log-level.WARNING { background: #ffc107; color: #000; }
-        .log-level.ERROR { background: #ff5252; color: #fff; }
-        .log-level.CRITICAL { background: #d32f2f; color: #fff; }
-        .log-component { color: #00d9ff; min-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
-        .log-message { color: #ccc; flex: 1; word-break: break-word; font-size: 0.95em; line-height: 1.2em; }
-        .log-count { background: #333; color: #bbb; padding: 6px 14px; border-radius: 6px; font-size: 0.95em; }
-        .no-logs { color: #666; text-align: center; padding: 40px; }
-        .auto-scroll-indicator { font-size: 0.9em; color: #bbb; display: flex; align-items: center; gap: 8px; }
-        .auto-scroll-indicator input { cursor: pointer; transform: translateY(1px); }
-
-        /* component filters */
-        .items-filters { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
-        .items-filters input[type="text"], .items-filters select { background: #0f3460; border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #eee; font-size: 0.95em; }
-        .items-filters input[type="text"]::placeholder { color: #666; }
-        .items-filters .small { padding: 8px 10px; font-size: 0.9em; }
-
-        /* register plugin section */
-        .register-plugin-section { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
-        .upload-status { color: #888; font-size: 0.9em; }
-        .upload-status.uploading { color: #ffc107; }
-        .upload-status.success { color: #00c853; }
-        .upload-status.error { color: #ff5252; }
-
-        .no-items { color: #666; text-align: center; padding: 24px; }
-
-        /* details panel on the right */
-        .details-panel {
-            position: fixed;
-            top: 0;
-            right: 0;
-            width: 420px;
-            max-width: 90vw;
-            height: 100vh;
-            background: linear-gradient(180deg, #0d1a2d 0%, #0b1220 100%);
-            border-left: 1px solid rgba(0, 217, 255, 0.15);
-            box-shadow: -12px 0 40px rgba(0,0,0,0.5);
-            transform: translateX(100%);
-            transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 280ms ease;
-            z-index: 100;
+        /* ========== MAIN LAYOUT ========== */
+        .main-layout {
+            flex: 1;
             display: flex;
-            flex-direction: column;
-            opacity: 0;
-            pointer-events: none;
             overflow: hidden;
         }
-        .details-panel.open {
-            transform: translateX(0);
-            opacity: 1;
-            pointer-events: auto;
-        }
 
-        /* Main content shifts left when panel is open */
-        .container {
-            transition: margin-right 280ms cubic-bezier(0.4, 0, 0.2, 1), max-width 280ms ease;
-        }
-        .container.with-panel {
-            margin-right: 420px;
-        }
-
-        /* Panel header */
-        .panel-header {
+        /* ========== LEFT PANEL (Components) ========== */
+        .left-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 500px;
+            background: #16213e;
+            border-right: 1px solid rgba(255,255,255,0.06);
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px 24px;
-            background: rgba(0, 217, 255, 0.03);
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .left-panel-header {
+            padding: 16px;
             border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
         }
-        .panel-header h3 {
+        .left-panel-header h2 {
             color: #00d9ff;
-            font-size: 1.3em;
-            font-weight: 700;
-            margin: 0;
+            font-size: 1em;
+            margin-bottom: 12px;
         }
-        .panel-header .close {
-            background: rgba(255,255,255,0.05);
-            border: none;
-            color: #aaa;
-            font-size: 1.1em;
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.15s ease;
+        .filters-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .filters-row input[type="text"],
+        .filters-row select {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #eee;
+            font-size: 0.9em;
+            flex: 1;
+            min-width: 100px;
+        }
+        .filters-row input::placeholder { color: #666; }
+        .filters-row select { cursor: pointer; }
+        .left-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+        .left-panel-content::-webkit-scrollbar { width: 8px; }
+        .left-panel-content::-webkit-scrollbar-track { background: transparent; }
+        .left-panel-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+        /* Section headers in left panel */
+        .section-header {
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            margin-top: 16px;
         }
-        .panel-header .close:hover {
-            background: rgba(255, 82, 82, 0.2);
-            color: #ff5252;
+        .section-header:first-child { margin-top: 0; }
+        .section-header h3 {
+            color: #888;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .section-count {
+            background: rgba(0, 217, 255, 0.15);
+            color: #00d9ff;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
         }
 
-        /* Panel content */
-        .panel-content {
+        /* Component cards in left panel */
+        .component-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .component-card {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.15s ease;
+        }
+        .component-card:hover {
+            background: rgba(0, 217, 255, 0.05);
+            border-color: rgba(0, 217, 255, 0.2);
+        }
+        .component-card.selected {
+            background: rgba(0, 217, 255, 0.1);
+            border-color: #00d9ff;
+        }
+        .component-card.disabled {
+            opacity: 0.6;
+        }
+        .component-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .component-card-name {
+            color: #eee;
+            font-weight: 600;
+            font-size: 0.95em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .component-card-version {
+            color: #666;
+            font-size: 0.8em;
+        }
+        .component-card-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            font-weight: 700;
+        }
+        .component-card-status.active { background: #00c853; color: #000; }
+        .component-card-status.inactive { background: #ff5252; color: #fff; }
+        .component-card-status.initializing { background: #ffc107; color: #000; }
+        .component-card-status.shutting_down { background: #ff9800; color: #000; }
+
+        /* Upload section */
+        .upload-section {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .upload-section .btn { font-size: 0.8em; padding: 6px 10px; }
+        .upload-status { color: #888; font-size: 0.8em; width: 100%; }
+
+        /* ========== RIGHT PANEL (Tabs) ========== */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #1a1a2e;
+        }
+        .tab-bar {
+            display: flex;
+            background: #16213e;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            padding: 14px 24px;
+            background: transparent;
+            border: none;
+            color: #888;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.15s ease;
+        }
+        .tab-btn:hover {
+            color: #ccc;
+            background: rgba(0, 217, 255, 0.03);
+        }
+        .tab-btn.active {
+            color: #00d9ff;
+            border-bottom-color: #00d9ff;
+        }
+        .tab-content {
+            flex: 1;
+            overflow: hidden;
+            display: none;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ========== DETAILS TAB ========== */
+        .details-content {
             flex: 1;
             overflow-y: auto;
             padding: 24px;
         }
-        .panel-content::-webkit-scrollbar { width: 8px; }
-        .panel-content::-webkit-scrollbar-track { background: transparent; }
-        .panel-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        .details-content::-webkit-scrollbar { width: 8px; }
+        .details-content::-webkit-scrollbar-track { background: transparent; }
+        .details-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-        /* Panel sections */
+        .details-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        .details-title {
+            color: #00d9ff;
+            font-size: 1.5em;
+            font-weight: 700;
+        }
+        .details-version {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 4px;
+        }
+        .details-actions {
+            display: flex;
+            gap: 10px;
+        }
+
         .panel-section {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
         .panel-section-title {
             color: #888;
             font-size: 0.75em;
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             font-weight: 600;
         }
         .panel-desc {
             color: #cfcfcf;
-            line-height: 1.5;
+            line-height: 1.6;
             font-size: 0.95em;
         }
 
-        /* Panel meta grid */
         .panel-meta-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
         }
         .panel-meta-item {
-            background: rgba(255,255,255,0.03);
-            padding: 12px 14px;
+            background: rgba(0,0,0,0.2);
+            padding: 14px 16px;
             border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.04);
         }
         .panel-meta-item .label {
-            color: #777;
+            color: #666;
             font-size: 0.75em;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -266,7 +356,6 @@
             font-size: 0.95em;
         }
 
-        /* Panel state box */
         .panel-state-box {
             background: rgba(0,0,0,0.3);
             padding: 14px;
@@ -277,19 +366,28 @@
             line-height: 1.5;
             white-space: pre-wrap;
             word-break: break-word;
-            max-height: 200px;
-            overflow-y: auto;
         }
 
-        /* Panel footer actions */
-        .panel-footer {
-            padding: 16px 24px;
-            background: rgba(0,0,0,0.2);
-            border-top: 1px solid rgba(255,255,255,0.06);
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
+        /* Status badges */
+        .status { display: inline-block; padding: 6px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 700; }
+        .status.active { background: #00c853; color: #000; }
+        .status.inactive { background: #ff5252; color: #fff; }
+        .status.initializing { background: #ffc107; color: #000; animation: pulse 1s infinite; }
+        .status.shutting_down { background: #ff9800; color: #000; animation: pulse 1s infinite; }
+
+        .type-badge { display: inline-block; padding: 5px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 700; }
+        .type-app { background: #7c4dff; color: #fff; }
+        .type-plugin { background: #00bcd4; color: #000; }
+        .type-library { background: #ff9800; color: #000; }
+
+        /* Buttons */
+        .btn { padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9em; transition: all 0.15s ease; }
+        .btn:hover:not(:disabled) { transform: scale(1.02); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-enable { background: #00c853; color: #000; }
+        .btn-disable { background: #ff5252; color: #fff; }
+        .btn-secondary { background: #455a64; color: #fff; }
+        .btn-danger { background: #ff5252; color: #fff; }
 
         /* Configuration form */
         .config-form {
@@ -300,13 +398,16 @@
         .config-field {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
+            padding: 14px;
+            background: rgba(0,0,0,0.15);
+            border-radius: 8px;
+            border-left: 3px solid rgba(0, 217, 255, 0.3);
         }
         .config-field label {
-            color: #888;
-            font-size: 0.8em;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            color: #ccc;
+            font-size: 0.9em;
+            font-weight: 500;
         }
         .config-field input,
         .config-field select {
@@ -316,7 +417,6 @@
             padding: 10px 12px;
             color: #eee;
             font-size: 0.95em;
-            transition: border-color 0.15s ease;
         }
         .config-field input:focus,
         .config-field select:focus {
@@ -332,107 +432,81 @@
             align-items: center;
             color: #ccc;
             font-size: 0.95em;
-            text-transform: none;
-            letter-spacing: normal;
         }
         .config-field .field-description {
-            color: #666;
-            font-size: 0.75em;
-            margin-top: 2px;
+            color: #888;
+            font-size: 0.8em;
+            line-height: 1.4;
+            margin-top: 4px;
+            padding: 6px 8px;
+            background: rgba(0, 217, 255, 0.05);
+            border-radius: 4px;
+            border-left: 2px solid rgba(0, 217, 255, 0.2);
         }
         .config-actions {
-            margin-top: 12px;
+            margin-top: 16px;
             display: flex;
             gap: 10px;
             justify-content: flex-end;
         }
 
-        /* Tree structure for nested config (dict/list) */
-        .config-tree {
-            margin-left: 0;
-        }
+        /* Tree structure for nested config */
         .config-tree-node {
             position: relative;
             margin-bottom: 8px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
         }
         .config-tree-node.nested {
             margin-left: 20px;
-            padding-left: 12px;
-            border-left: 1px solid rgba(255,255,255,0.1);
+            border-left: 2px solid rgba(0, 217, 255, 0.2);
         }
         .config-tree-header {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 6px;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.15);
+            cursor: pointer;
         }
         .config-tree-toggle {
             background: none;
             border: none;
             color: #00d9ff;
+            font-size: 0.8em;
             cursor: pointer;
-            font-size: 0.9em;
-            padding: 2px 6px;
-            border-radius: 4px;
-            transition: background 0.15s ease;
-        }
-        .config-tree-toggle:hover {
-            background: rgba(0, 217, 255, 0.1);
+            padding: 4px;
         }
         .config-tree-label {
-            color: #888;
-            font-size: 0.8em;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            color: #ccc;
+            font-weight: 500;
+            font-size: 0.9em;
+        }
+        .config-tree-type-badge {
+            background: rgba(0, 217, 255, 0.15);
+            color: #00d9ff;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
             font-weight: 600;
         }
-        .config-tree-type {
-            color: #666;
-            font-size: 0.7em;
-            padding: 2px 6px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 4px;
-        }
         .config-tree-children {
-            margin-top: 6px;
+            padding: 8px 12px;
         }
         .config-tree-children.collapsed {
             display: none;
         }
         .config-tree-item {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 8px;
-            margin-bottom: 8px;
-        }
-        .config-tree-item-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
+            padding: 6px 0;
         }
         .config-tree-item-key {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .config-tree-item-key input {
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 4px;
-            padding: 6px 8px;
-            color: #00d9ff;
+            color: #888;
             font-size: 0.85em;
-            width: 100px;
-        }
-        .config-tree-item-key input:focus {
-            outline: none;
-            border-color: rgba(0, 217, 255, 0.5);
-        }
-        .config-tree-item-key span {
-            color: #00d9ff;
-            font-size: 0.85em;
-            font-weight: 600;
+            min-width: 80px;
         }
         .config-tree-item-value {
             flex: 1;
@@ -442,504 +516,543 @@
             width: 100%;
             background: rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
-            padding: 8px 10px;
+            border-radius: 4px;
+            padding: 6px 10px;
             color: #eee;
-            font-size: 0.9em;
-        }
-        .config-tree-item-value input:focus,
-        .config-tree-item-value select:focus {
-            outline: none;
-            border-color: rgba(0, 217, 255, 0.5);
+            font-size: 0.85em;
         }
         .config-tree-actions {
             display: flex;
             gap: 4px;
-            align-items: center;
         }
         .config-tree-btn {
-            background: rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.1);
             border: none;
             color: #aaa;
-            font-size: 0.85em;
             width: 24px;
             height: 24px;
             border-radius: 4px;
             cursor: pointer;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-size: 0.8em;
         }
-        .config-tree-btn:hover {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
-        }
-        .config-tree-btn.add {
-            color: #00c853;
-        }
-        .config-tree-btn.add:hover {
-            background: rgba(0, 200, 83, 0.2);
-        }
-        .config-tree-btn.remove {
-            color: #ff5252;
-        }
-        .config-tree-btn.remove:hover {
-            background: rgba(255, 82, 82, 0.2);
-        }
+        .config-tree-btn:hover { background: rgba(255,255,255,0.15); }
+        .config-tree-btn.add { color: #00c853; }
+        .config-tree-btn.remove { color: #ff5252; }
         .config-tree-add-row {
             display: flex;
+            align-items: center;
             gap: 8px;
-            margin-top: 8px;
-        }
-        .config-tree-add-btn {
-            background: rgba(0, 200, 83, 0.1);
-            border: 1px dashed rgba(0, 200, 83, 0.3);
-            color: #00c853;
-            font-size: 0.85em;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-        .config-tree-add-btn:hover {
-            background: rgba(0, 200, 83, 0.2);
-            border-color: rgba(0, 200, 83, 0.5);
+            padding: 8px 0;
+            margin-top: 4px;
+            border-top: 1px solid rgba(255,255,255,0.05);
         }
         .config-tree-type-select {
-            background: #0f3460;
-            border: 1px solid rgba(0, 217, 255, 0.3);
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
             border-radius: 4px;
-            padding: 6px 10px;
+            padding: 4px 8px;
             color: #00d9ff;
-            font-size: 0.85em;
+            font-size: 0.8em;
             cursor: pointer;
-            font-weight: 600;
-        }
-        .config-tree-type-select:focus {
-            outline: none;
-            border-color: rgba(0, 217, 255, 0.6);
-        }
-        .config-tree-type-select option {
-            background: #0f3460;
-            color: #eee;
         }
 
-        /* small screens tweaks */
-        @media (max-width: 920px) {
-            .details-panel { width: 100vw; max-width: 100vw; }
-            .container.with-panel { margin-right: 0; }
+        /* ========== LOGS TAB ========== */
+        .logs-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
-        @media (max-width: 520px) {
-            .card-list { grid-template-columns: 1fr; }
-            .component-desc { max-height: 4.6em; }
-            .log-component { min-width: 100px; font-size: 0.9em; }
-            .logs-container { height: 360px; }
+        .logs-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: #16213e;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .logs-filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .logs-filters input[type="text"] {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #eee;
+            min-width: 200px;
+            font-size: 0.9em;
+        }
+        .logs-filters input::placeholder { color: #666; }
+        .logs-filters select {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #eee;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .logs-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .log-count {
+            background: rgba(0, 217, 255, 0.1);
+            color: #00d9ff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .auto-scroll-indicator {
+            font-size: 0.85em;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .logs-container {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            padding: 8px;
+            background: #0a0a1a;
+        }
+        .logs-container::-webkit-scrollbar { width: 10px; }
+        .logs-container::-webkit-scrollbar-track { background: #1a1a2e; }
+        .logs-container::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
+        .log-entry {
+            padding: 8px 12px;
+            border-bottom: 1px solid #141424;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .log-entry:hover { background: rgba(0, 217, 255, 0.03); }
+        .log-entry.new { animation: log-flash 0.5s ease; }
+        @keyframes log-flash { 0% { background: rgba(0, 217, 255, 0.12); } 100% { background: transparent; } }
+        .log-time { color: #666; white-space: nowrap; min-width: 80px; font-size: 0.9em; }
+        .log-level { padding: 3px 8px; border-radius: 4px; font-size: 0.8em; min-width: 60px; text-align: center; font-weight: 700; }
+        .log-level.DEBUG { background: #455a64; color: #fff; }
+        .log-level.INFO { background: #2196f3; color: #fff; }
+        .log-level.WARNING { background: #ffc107; color: #000; }
+        .log-level.ERROR { background: #ff5252; color: #fff; }
+        .log-level.CRITICAL { background: #d32f2f; color: #fff; }
+        .log-component { color: #00d9ff; min-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+        .log-message { color: #bbb; flex: 1; word-break: break-word; line-height: 1.3; }
+        .no-logs { color: #666; text-align: center; padding: 40px; }
+
+        /* Toast notifications */
+        .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; }
+        .toast { padding: 12px 18px; border-radius: 8px; color: #fff; font-size: 0.9em; opacity: 0; transform: translateX(100px); transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; }
+        .toast.show { opacity: 1; transform: translateX(0); }
+        .toast.success { background: #00c853; }
+        .toast.error { background: #ff5252; }
+        .toast.info { background: #00bcd4; }
+        .toast.state-change { background: #7c4dff; }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .left-panel { width: 320px; min-width: 280px; }
+            .app-info { display: none; }
+        }
+        @media (max-width: 768px) {
+            .main-layout { flex-direction: column; }
+            .left-panel { width: 100%; max-width: none; height: 40vh; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.06); }
+            .right-panel { height: 60vh; }
+            .top-panel { padding: 12px 16px; }
+            .app-stats { display: none; }
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <div class="header-row">
+
+<!-- TOP PANEL -->
+<div class="top-panel">
+    <div class="app-branding">
         <h1>IOC Management Dashboard</h1>
-        <div class="connection-status connecting" id="connectionStatus">
-            <span class="status-dot connecting"></span>
-            <span>Connecting...</span>
+    </div>
+    <div class="app-info" id="appInfo">
+        <div class="app-info-item">
+            <span class="label">App:</span>
+            <span class="value" id="appName">-</span>
         </div>
-        <button class="refresh-btn" onclick="requestRefresh()">Refresh</button>
-    </div>
-
-    <h2>Application State</h2>
-    <div class="state-grid" id="state"></div>
-
-    <!-- Filters for components/plugins -->
-    <div class="items-filters">
-        <input id="itemSearch" oninput="renderAllSections()" placeholder="Search by name..." type="text">
-
-        <select class="small" id="itemStatus" onchange="renderAllSections()">
-            <option value="">All status</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-        </select>
-
-        <button class="btn btn-secondary small" onclick="clearItemFilters()">Clear</button>
-    </div>
-
-    <!-- App Section -->
-    <h2>Application</h2>
-    <div class="card-list" id="appSection"></div>
-
-    <!-- Libraries Section -->
-    <h2>Libraries</h2>
-    <div class="card-list" id="librariesSection"></div>
-
-    <!-- Plugins Section -->
-    <h2>Plugins</h2>
-    <div class="register-plugin-section">
-        <input accept=".py" id="pluginFile" onchange="uploadPluginFile()" style="display:none" type="file">
-        <input id="pluginDir" onchange="uploadPluginDirectory()" style="display:none" type="file" webkitdirectory>
-        <button class="btn btn-enable" onclick="document.getElementById('pluginFile').click()">Upload Plugin File
-        </button>
-        <button class="btn btn-secondary" onclick="document.getElementById('pluginDir').click()">Upload Plugin
-            Directory
-        </button>
-        <span class="upload-status" id="uploadStatus"></span>
-    </div>
-    <div class="card-list" id="pluginsSection"></div>
-
-    <h2>Logs</h2>
-    <div class="logs-header">
-        <div class="logs-filters">
-            <input id="logSearch" oninput="filterLogs()" placeholder="Search logs..." type="text">
-            <select id="logLevel" onchange="filterLogs()">
-                <option value="">All Levels</option>
-                <option value="DEBUG">DEBUG</option>
-                <option value="INFO">INFO</option>
-                <option value="WARNING">WARNING</option>
-                <option value="ERROR">ERROR</option>
-                <option value="CRITICAL">CRITICAL</option>
-            </select>
+        <div class="app-info-item">
+            <span class="label">Version:</span>
+            <span class="value" id="appVersion">-</span>
         </div>
-        <div class="logs-actions">
-            <span class="log-count" id="logCount">0 logs</span>
-            <label class="auto-scroll-indicator">
-                <input checked id="autoScroll" type="checkbox"> Auto-scroll
-            </label>
-            <button class="btn btn-secondary" onclick="requestLogs()">Reload</button>
-            <button class="btn btn-danger" onclick="clearLogs()">Clear</button>
+        <div class="app-info-item">
+            <span class="label">Config:</span>
+            <span class="value" id="appConfig">-</span>
         </div>
     </div>
-    <div class="logs-container" id="logsContainer">
-        <div class="no-logs">No logs yet...</div>
+    <div class="app-stats" id="appStats">
+        <div class="stat-badge">
+            <span class="stat-value" id="statComponents">0</span>
+            <span class="stat-label">Components</span>
+        </div>
+        <div class="stat-badge">
+            <span class="stat-value" id="statPlugins">0</span>
+            <span class="stat-label">Plugins</span>
+        </div>
+    </div>
+    <div class="connection-status connecting" id="connectionStatus">
+        <span class="status-dot connecting"></span>
+        <span>Connecting...</span>
     </div>
 </div>
 
-<!-- Details panel -->
-<div aria-hidden="true" class="details-panel" id="detailsPanel">
-    <div class="panel-header">
-        <h3 id="panelTitle">Component</h3>
-        <button aria-label="Close" class="close" id="panelClose">✕</button>
-    </div>
-
-    <div class="panel-content">
-        <div class="panel-section">
-            <div class="panel-section-title">Description</div>
-            <div class="panel-desc" id="panelDesc">Select a component to see details.</div>
-        </div>
-
-        <div class="panel-section">
-            <div class="panel-section-title">Details</div>
-            <div class="panel-meta-grid">
-                <div class="panel-meta-item">
-                    <span class="label">Kind</span>
-                    <span class="value" id="panelKind">-</span>
-                </div>
-                <div class="panel-meta-item">
-                    <span class="label">Type</span>
-                    <span class="value" id="panelType">-</span>
-                </div>
-                <div class="panel-meta-item">
-                    <span class="label">Version</span>
-                    <span class="value" id="panelVersion">-</span>
-                </div>
-                <div class="panel-meta-item">
-                    <span class="label">Status</span>
-                    <span class="value" id="panelStatus">-</span>
-                </div>
+<!-- MAIN LAYOUT -->
+<div class="main-layout">
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+        <div class="left-panel-header">
+            <h2>Components</h2>
+            <div class="filters-row">
+                <input id="itemSearch" oninput="renderAllSections()" placeholder="Search..." type="text">
+                <select id="itemStatus" onchange="renderAllSections()">
+                    <option value="">All</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                </select>
             </div>
         </div>
-
-        <div class="panel-section">
-            <div class="panel-section-title">State</div>
-            <div class="panel-state-box" id="panelStateBox">No state</div>
-        </div>
-
-        <div class="panel-section" id="panelInternalsSection">
-            <div class="panel-section-title">Internals</div>
-            <div class="panel-meta-grid" id="panelInternalsGrid">
-                <div class="panel-meta-item" style="grid-column: 1 / -1;">
-                    <span class="label">Module</span>
-                    <span class="value" id="panelModule" style="font-family: monospace; font-size: 0.85em;">-</span>
-                </div>
-                <div class="panel-meta-item">
-                    <span class="label">Auto-wire</span>
-                    <span class="value" id="panelWire">-</span>
-                </div>
+        <div class="left-panel-content">
+            <!-- Application Section -->
+            <div class="section-header">
+                <h3>Application</h3>
+                <span class="section-count" id="appCount">0</span>
             </div>
-            <div id="panelDependencies" style="margin-top: 12px;"></div>
-        </div>
+            <div class="component-list" id="appSection"></div>
 
-        <div class="panel-section" id="panelConfigSection" style="display:none;">
-            <div class="panel-section-title">Configuration</div>
-            <div class="config-form" id="panelConfigForm"></div>
-            <div class="config-actions">
-                <button class="btn btn-enable" id="saveConfigBtn" onclick="saveConfig()">Save Configuration</button>
+            <!-- Libraries Section -->
+            <div class="section-header">
+                <h3>Libraries</h3>
+                <span class="section-count" id="libCount">0</span>
+            </div>
+            <div class="component-list" id="librariesSection"></div>
+
+            <!-- Plugins Section -->
+            <div class="section-header">
+                <h3>Plugins</h3>
+                <span class="section-count" id="pluginCount">0</span>
+            </div>
+            <div class="component-list" id="pluginsSection"></div>
+
+            <div class="upload-section">
+                <input accept=".py" id="pluginFile" onchange="uploadPluginFile()" style="display:none" type="file">
+                <input id="pluginDir" onchange="uploadPluginDirectory()" style="display:none" type="file"
+                       webkitdirectory>
+                <button class="btn btn-enable" onclick="document.getElementById('pluginFile').click()">Upload File
+                </button>
+                <button class="btn btn-secondary" onclick="document.getElementById('pluginDir').click()">Upload Dir
+                </button>
+                <span class="upload-status" id="uploadStatus"></span>
             </div>
         </div>
     </div>
 
-    <div class="panel-footer" id="panelActions">
-        <!-- buttons injected here -->
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+        <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('details')">Details</button>
+            <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+        </div>
+
+        <!-- Details Tab -->
+        <div class="tab-content active" id="tab-details">
+            <div class="details-content">
+                <div class="details-header">
+                    <div>
+                        <div class="details-title" id="panelTitle">Select a component</div>
+                        <div class="details-version" id="panelVersion"></div>
+                    </div>
+                    <div class="details-actions" id="panelActions"></div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">Description</div>
+                    <div class="panel-desc" id="panelDesc">Select a component from the left panel to view its details.
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">Details</div>
+                    <div class="panel-meta-grid">
+                        <div class="panel-meta-item">
+                            <span class="label">Kind</span>
+                            <span class="value" id="panelKind">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Type</span>
+                            <span class="value" id="panelType">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Status</span>
+                            <span class="value" id="panelStatus">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Auto-wire</span>
+                            <span class="value" id="panelWire">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">State</div>
+                    <div class="panel-state-box" id="panelStateBox">No state</div>
+                </div>
+
+                <div class="panel-section" id="panelInternalsSection">
+                    <div class="panel-section-title">Dependencies</div>
+                    <div id="panelDependencies">
+                        <span style="color: #666; font-size: 0.9em;">No dependencies</span>
+                    </div>
+                </div>
+
+                <div class="panel-section" id="panelConfigSection" style="display:none;">
+                    <div class="panel-section-title">Configuration</div>
+                    <div class="config-form" id="panelConfigForm"></div>
+                    <div class="config-actions">
+                        <button class="btn btn-enable" id="saveConfigBtn" onclick="saveConfig()">Save Configuration
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-content" id="tab-logs">
+            <div class="logs-content">
+                <div class="logs-toolbar">
+                    <div class="logs-filters">
+                        <input id="logSearch" oninput="filterLogs()" placeholder="Search logs..." type="text">
+                        <select id="logLevel" onchange="filterLogs()">
+                            <option value="">All Levels</option>
+                            <option value="DEBUG">DEBUG</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="CRITICAL">CRITICAL</option>
+                        </select>
+                    </div>
+                    <div class="logs-actions">
+                        <span class="log-count" id="logCount">0 logs</span>
+                        <label class="auto-scroll-indicator">
+                            <input checked id="autoScroll" type="checkbox"> Auto-scroll
+                        </label>
+                        <button class="btn btn-secondary" onclick="requestLogs()">Reload</button>
+                        <button class="btn btn-danger" onclick="clearLogs()">Clear</button>
+                    </div>
+                </div>
+                <div class="logs-container" id="logsContainer">
+                    <div class="no-logs">No logs yet...</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-    const WS_PORT = 8091;
-    let ws = null;
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 10;
-    const RECONNECT_DELAY = 2000;
-
-    // Store current data for partial updates
-    let currentState = {};
+    // State
     let currentComponents = [];
     let currentPlugins = [];
+    let currentLogs = [];
+    let ws = null;
+    let reconnectAttempts = 0;
+    let selectedComponent = null;
+    let currentPanelItem = null;
+    let treeNodeIdCounter = 0;
 
-    // Logs data
-    let logs = [];
-    const MAX_VISIBLE_LOGS = 1000;
+    // Tab switching
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
-    function showToast(message, type = 'info', duration = 3000) {
-        const container = document.getElementById('toastContainer');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
+        document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+    }
 
-        const icons = {
-            success: '✓',
-            error: '✗',
-            info: 'ℹ',
-            'state-change': '⟳'
-        };
+    // WebSocket connection
+    function connectWebSocket() {
+        const wsUrl = `ws://${location.hostname}:8091`;
+        updateConnectionStatus('connecting');
 
-        toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${message}</span>`;
-        container.appendChild(toast);
+        try {
+            ws = new WebSocket(wsUrl);
 
-        requestAnimationFrame(() => toast.classList.add('show'));
+            ws.onopen = () => {
+                updateConnectionStatus('connected');
+                reconnectAttempts = 0;
+                requestRefresh();
+                requestLogs();
+            };
 
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
-        }, duration);
+            ws.onclose = () => {
+                updateConnectionStatus('disconnected');
+                setTimeout(() => {
+                    reconnectAttempts++;
+                    connectWebSocket();
+                }, Math.min(1000 * Math.pow(2, reconnectAttempts), 30000));
+            };
+
+            ws.onerror = () => updateConnectionStatus('disconnected');
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (e) {
+                    console.error('Failed to parse message:', e);
+                }
+            };
+        } catch (e) {
+            updateConnectionStatus('disconnected');
+        }
     }
 
     function updateConnectionStatus(status) {
-        const statusEl = document.getElementById('connectionStatus');
-        const dot = statusEl.querySelector('.status-dot');
-        const text = statusEl.querySelector('span:last-child');
+        const el = document.getElementById('connectionStatus');
+        el.className = 'connection-status ' + status;
+        const dot = el.querySelector('.status-dot');
+        dot.className = 'status-dot ' + status;
 
-        statusEl.className = `connection-status ${status}`;
-        dot.className = `status-dot ${status}`;
-
-        switch(status) {
-            case 'connected':
-                text.textContent = 'Connected (Real-time)';
-                break;
-            case 'disconnected':
-                text.textContent = 'Disconnected';
-                break;
-            case 'connecting':
-                text.textContent = 'Connecting...';
-                break;
-        }
-    }
-
-    function connectWebSocket() {
-        updateConnectionStatus('connecting');
-
-        const wsUrl = `ws://${window.location.hostname}:${WS_PORT}`;
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-            updateConnectionStatus('connected');
-            reconnectAttempts = 0;
-            showToast('Connected to server', 'success');
-        };
-
-        ws.onclose = () => {
-            updateConnectionStatus('disconnected');
-            ws = null;
-
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                reconnectAttempts++;
-                setTimeout(connectWebSocket, RECONNECT_DELAY);
-            } else {
-                showToast('Connection lost. Please refresh the page.', 'error', 10000);
-            }
-        };
-
-        ws.onerror = () => {
-            updateConnectionStatus('disconnected');
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
-            } catch (e) {
-                console.error('Failed to parse message:', e);
-            }
-        };
+        const labels = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting...' };
+        el.querySelector('span:last-child').textContent = labels[status] || status;
     }
 
     function handleMessage(data) {
-        switch(data.type) {
+        switch (data.type) {
             case 'full_state':
-                currentState = data.state;
                 currentComponents = data.components || [];
                 currentPlugins = data.plugins || [];
-                renderState(data.state);
-                renderCombinedItems();
+                updateTopPanel();
+                renderAllSections();
+                // Auto-select app if nothing selected
+                if (!selectedComponent) {
+                    const apps = currentComponents.filter(c => c.type === 'app');
+                    if (apps.length > 0) {
+                        selectComponent(apps[0].name);
+                    }
+                } else {
+                    // Refresh current selection
+                    selectComponent(selectedComponent);
+                }
                 break;
-
-            case 'state_summary':
-                currentState = data.state;
-                renderState(data.state, true);
-                break;
-
             case 'component_update':
-                handleComponentUpdate(data);
+                if (data.component) {
+                    const idx = currentComponents.findIndex(c => c.name === data.component.name);
+                    if (idx >= 0) currentComponents[idx] = data.component;
+                    else currentComponents.push(data.component);
+                    renderAllSections(data.component.name);
+                    if (selectedComponent === data.component.name) {
+                        selectComponent(selectedComponent);
+                    }
+                }
                 break;
-
             case 'logs_history':
-                logs = data.logs || [];
+                currentLogs = data.logs || [];
                 renderLogs();
                 break;
-
             case 'log':
                 addLogEntry(data.entry);
                 break;
-
             case 'logs_cleared':
-                logs = [];
+                currentLogs = [];
                 renderLogs();
                 break;
-
             case 'success':
-                showToast(data.message, 'success');
-                setUploadStatus('');
-                break;
-
             case 'error':
-                showToast(data.error, 'error');
-                setUploadStatus('Failed', 'error');
-                break;
-
             case 'info':
-                showToast(data.message, 'info');
-                setUploadStatus('');
+                showToast(data.message || data.error, data.type);
                 break;
         }
     }
 
-    function handleComponentUpdate(data) {
-        const { component, transition } = data;
-        const name = component.name;
+    function updateTopPanel() {
+        const app = currentComponents.find(c => c.type === 'app');
+        if (app) {
+            document.getElementById('appName').textContent = app.name;
+            document.getElementById('appVersion').textContent = 'v' + (app.version || '?');
+        }
 
-        const transitionText = `${transition.from} → ${transition.to}`;
-        showToast(`${name}: ${transitionText}`, 'state-change', 4000);
+        document.getElementById('statComponents').textContent = currentComponents.length;
+        document.getElementById('statPlugins').textContent = currentPlugins.length;
+    }
 
-        updateComponentInList(currentComponents, component);
-        updateComponentInList(currentPlugins, component);
-
-        renderCombinedItems(component.name);
-
-        // if details panel is open for this item, refresh it
-        const panel = document.getElementById('detailsPanel');
-        if (panel.classList.contains('open')) {
-            const title = document.getElementById('panelTitle').textContent;
-            if (title === component.name) {
-                populateDetailsPanel(component);
-            }
+    function requestRefresh() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'refresh' }));
         }
     }
 
-    function updateComponentInList(list, updatedComponent) {
-        const index = list.findIndex(c => c.name === updatedComponent.name);
-        if (index !== -1) {
-            list[index] = updatedComponent;
+    function requestLogs() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'get_logs' }));
         }
     }
 
-    function getStatusClass(component) {
-        if (component && component.status) return component.status;
-        if (component && component.state && component.state.is_shutting_down) return 'shutting_down';
-        if (component && component.state && component.state.is_initializing) return 'initializing';
-        if (component && component.state && component.state.is_initialized) return 'active';
-        return 'inactive';
+    // Helper functions
+    function escapeHtml(text) {
+        if (text === undefined || text === null) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
     }
 
-    function getStatusLabel(component) {
-        const status = getStatusClass(component);
-        const labels = {
-            'active': 'Active',
-            'inactive': 'Inactive',
-            'initializing': 'Initializing',
-            'shutting_down': 'Shutting Down'
-        };
-        return labels[status] || status;
+    function escapeJs(text) {
+        if (text === undefined || text === null) return '';
+        return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
-    function renderState(state, animate = false) {
-        const stateDiv = document.getElementById('state');
-        const animClass = animate ? 'updated' : '';
-
-        const configFile = state.config_file || 'Unknown';
-
-        stateDiv.innerHTML = `
-            <div class="state-item ${animClass}">
-                <div class="state-value">${state.total_components}</div>
-                <div class="state-label">Total Components</div>
-            </div>
-            <div class="state-item ${animClass}">
-                <div class="state-value">${state.initialized_components}</div>
-                <div class="state-label">Initialized</div>
-            </div>
-            <div class="state-item ${animClass}">
-                <div class="state-value">${state.plugins_count}</div>
-                <div class="state-label">Plugins</div>
-            </div>
-            <div class="state-item ${animClass}">
-                <div class="state-value">${state.libraries_count}</div>
-                <div class="state-label">Libraries</div>
-            </div>
-            <div class="state-item config-file ${animClass}">
-                <div class="state-label">Config File</div>
-                <div class="state-value-path" title="${configFile}">${configFile}</div>
-            </div>
-        `;
+    function getStatusClass(item) {
+        if (!item.state) return 'inactive';
+        if (item.state.is_shutting_down) return 'shutting_down';
+        if (item.state.is_initializing) return 'initializing';
+        return item.state.is_initialized ? 'active' : 'inactive';
     }
 
-    // Helper to get all items combined with kind info
+    function getStatusLabel(item) {
+        if (!item.state) return 'Inactive';
+        if (item.state.is_shutting_down) return 'Stopping';
+        if (item.state.is_initializing) return 'Starting';
+        return item.state.is_initialized ? 'Active' : 'Inactive';
+    }
+
+    // Component list rendering
     function getAllItemsCombined() {
         const combinedMap = new Map();
         (currentComponents || []).forEach(c => combinedMap.set(c.name, Object.assign({ _kind: 'component' }, c)));
         (currentPlugins || []).forEach(p => combinedMap.set(p.name, Object.assign({ _kind: 'plugin' }, p)));
-        return Array.from(combinedMap.values()).sort((a,b) => a.name.localeCompare(b.name));
+        return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // Apply filters to items
     function applyFilters(items) {
         const nameSearch = (document.getElementById('itemSearch')?.value || '').toLowerCase().trim();
         const statusFilter = (document.getElementById('itemStatus')?.value || '').toLowerCase();
 
         return items.filter(item => {
-            // name filter
             if (nameSearch && !item.name.toLowerCase().includes(nameSearch)) return false;
-
-            // status filter
             if (statusFilter) {
                 const isActive = !!(item.state && item.state.is_initialized);
                 if (statusFilter === 'enabled' && !isActive) return false;
                 if (statusFilter === 'disabled' && isActive) return false;
             }
-
             return true;
         });
     }
 
-    // Get items by category (app, library, plugin)
     function getItemsByCategory() {
         const all = getAllItemsCombined();
         const filtered = applyFilters(all);
@@ -951,458 +1064,131 @@
         return { apps, libraries, plugins };
     }
 
-    // Render a single item card
-    function renderItemCard(item, highlightName = null) {
+    function renderComponentCard(item, highlightName) {
         const statusClass = getStatusClass(item);
         const statusLabel = getStatusLabel(item);
-        const highlight = item.name === highlightName ? 'state-change' : '';
+        const isSelected = selectedComponent === item.name;
         const isActive = item.state && item.state.is_initialized;
-        const disabledClass = !isActive ? 'disabled' : '';
-        const isTransitioning = item.state && (item.state.is_initializing || item.state.is_shutting_down);
-        const rawType = item.type || (item._kind === 'plugin' ? 'plugin' : 'unknown');
-        const safeType = String(rawType).replace(/[^a-z0-9_-]/ig, '').toLowerCase();
-
-        const escapedNameForJs = escapeJs(item.name);
-        const kindLabel = item._kind === 'plugin' ? 'Plugin' : 'Component';
-
-        const lowerType = String(rawType).toLowerCase();
-        const isApp = lowerType === 'app';
-        const isLibrary = lowerType === 'library';
-
-        const statusHtml = `<span class="status ${statusClass}">${statusLabel}</span>`;
-
-        // Buttons: if item is an app or library => no enable/disable shown
-        let actionsHtml = '';
-        if (!isApp && !isLibrary) {
-            if (isTransitioning) {
-                actionsHtml = `<button class="btn" onpointerdown="event.stopPropagation()" disabled>Please wait...</button>`;
-            } else {
-                actionsHtml = isActive
-                    ? `<button class="btn btn-disable" onpointerdown="event.stopPropagation()" onclick="disableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Disable</button>`
-                    : `<button class="btn btn-enable" onpointerdown="event.stopPropagation()" onclick="enableItem('${escapedNameForJs}', '${escapeJs(item._kind)}')">Enable</button>`;
-            }
-        }
+        const highlight = item.name === highlightName ? 'state-change' : '';
 
         return `
-        <div class="card card-item ${highlight} ${disabledClass}" data-item="${escapeHtml(item.name)}" data-kind="${escapeHtml(kindLabel)}">
-            <div class="card-header">
-                <div class="component-name">${escapeHtml(item.name)}</div>
-                <div class="component-version">v${escapeHtml(item.version || '')}</div>
-            </div>
-
-            <div class="component-desc">${escapeHtml(item.description || '')}</div>
-
-            <div class="meta-row">
-                <div class="meta-left"></div>
-                <div class="meta-right">
-                    ${statusHtml}
+            <div class="component-card ${isSelected ? 'selected' : ''} ${isActive ? '' : 'disabled'} ${highlight}"
+                 data-name="${escapeHtml(item.name)}" onclick="selectComponent('${escapeJs(item.name)}')">
+                <div class="component-card-header">
+                    <div>
+                        <div class="component-card-name">${escapeHtml(item.name)}</div>
+                        <div class="component-card-version">v${escapeHtml(item.version || '')}</div>
+                    </div>
+                    <span class="component-card-status ${statusClass}">${statusLabel}</span>
                 </div>
             </div>
-
-            <div class="card-actions">
-                ${actionsHtml}
-            </div>
-        </div>
         `;
     }
 
-    // Render items into a section container
-    function renderSection(containerId, items, emptyMessage, highlightName = null) {
+    function renderSection(containerId, items, highlightName) {
         const container = document.getElementById(containerId);
         if (!container) return;
 
         if (items.length === 0) {
-            container.innerHTML = `<div class="card no-items">${emptyMessage}</div>`;
+            container.innerHTML = '<div style="color:#666;font-size:0.85em;padding:8px;">No items</div>';
             return;
         }
 
-        container.innerHTML = items.map(item => renderItemCard(item, highlightName)).join('');
-
-        // Add click handlers to open details panel
-        Array.from(container.querySelectorAll('.card-item')).forEach(el => {
-            el.addEventListener('click', () => {
-                const name = el.getAttribute('data-item');
-                openDetails(name);
-            });
-        });
+        container.innerHTML = items.map(item => renderComponentCard(item, highlightName)).join('');
 
         if (highlightName) {
             setTimeout(() => {
-                const el = container.querySelector(`[data-item="${highlightName}"]`);
+                const el = container.querySelector(`[data-name="${highlightName}"]`);
                 if (el) el.classList.remove('state-change');
             }, 600);
         }
     }
 
-    // Render all sections (app, libraries, plugins)
     function renderAllSections(highlightName = null) {
         const { apps, libraries, plugins } = getItemsByCategory();
 
-        renderSection('appSection', apps, 'No application found', highlightName);
-        renderSection('librariesSection', libraries, 'No libraries match the filters', highlightName);
-        renderSection('pluginsSection', plugins, 'No plugins match the filters', highlightName);
-    }
+        renderSection('appSection', apps, highlightName);
+        renderSection('librariesSection', libraries, highlightName);
+        renderSection('pluginsSection', plugins, highlightName);
 
-    // Backwards compatibility alias
-    function renderCombinedItems(highlightName = null) {
-        renderAllSections(highlightName);
+        // Update counts
+        document.getElementById('appCount').textContent = apps.length;
+        document.getElementById('libCount').textContent = libraries.length;
+        document.getElementById('pluginCount').textContent = plugins.length;
     }
 
     function clearItemFilters() {
-        const s = document.getElementById('itemSearch'); if (s) s.value = '';
-        const st = document.getElementById('itemStatus'); if (st) st.value = '';
+        document.getElementById('itemSearch').value = '';
+        document.getElementById('itemStatus').value = '';
         renderAllSections();
     }
 
-    // Logs functions (list view)
-    function formatTime(timestamp) {
-        const date = new Date(timestamp * 1000);
-        return date.toLocaleTimeString('en-US', { hour12: false });
-    }
-
-    function escapeHtml(text) {
-        if (text === undefined || text === null) return '';
-        const div = document.createElement('div');
-        div.textContent = String(text);
-        return div.innerHTML;
-    }
-
-    function escapeJs(text) {
-        if (text === undefined || text === null) return '';
-        return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\"/g, '\\"');
-    }
-
-    function addLogEntry(entry) {
-        logs.push(entry);
-        if (logs.length > MAX_VISIBLE_LOGS) {
-            logs = logs.slice(-MAX_VISIBLE_LOGS);
-        }
-        renderLogs(true);
-    }
-
-    function getFilteredLogs() {
-        const searchTerm = document.getElementById('logSearch').value.toLowerCase();
-        const levelFilter = document.getElementById('logLevel').value;
-
-        return logs.filter(log => {
-            if (levelFilter && log.level !== levelFilter) {
-                return false;
-            }
-            if (searchTerm) {
-                const searchable = `${log.message} ${log.component} ${log.logger_name}`.toLowerCase();
-                if (!searchable.includes(searchTerm)) {
-                    return false;
-                }
-            }
-            return true;
-        });
-    }
-
-    function renderLogs(isNewEntry = false) {
-        const container = document.getElementById('logsContainer');
-        const filteredLogs = getFilteredLogs();
-        const countEl = document.getElementById('logCount');
-
-        countEl.textContent = `${filteredLogs.length} / ${logs.length} logs`;
-
-        if (filteredLogs.length === 0) {
-            container.innerHTML = '<div class="no-logs">No logs match the current filters</div>';
-            return;
-        }
-
-        const shouldScroll = document.getElementById('autoScroll').checked;
-        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
-
-        container.innerHTML = filteredLogs.map((log, index) => {
-            const isNew = isNewEntry && index === filteredLogs.length - 1;
-            return `
-            <div class="log-entry ${isNew ? 'new' : ''}">
-                <span class="log-time">${formatTime(log.timestamp)}</span>
-                <span class="log-level ${escapeHtml(log.level)}">${escapeHtml(log.level)}</span>
-                <span class="log-component" title="${escapeHtml(log.logger_name)}">${escapeHtml(log.component)}</span>
-                <span class="log-message">${escapeHtml(log.message)}</span>
-            </div>
-            `;
-        }).join('');
-
-        if (shouldScroll && (wasAtBottom || isNewEntry)) {
-            container.scrollTop = container.scrollHeight;
-        }
-    }
-
-    function filterLogs() {
-        renderLogs();
-    }
-
-    function requestLogs() {
-        sendMessage({ action: 'get_logs' });
-    }
-
-    function clearLogs() {
-        if (confirm('Are you sure you want to clear all logs?')) {
-            sendMessage({ action: 'clear_logs' });
-        }
-    }
-
-    function setUploadStatus(text, className = '') {
-        const status = document.getElementById('uploadStatus');
-        status.textContent = text;
-        status.className = 'upload-status ' + className;
-    }
-
-    async function uploadPluginFile() {
-        const input = document.getElementById('pluginFile');
-        if (!input.files.length) return;
-
-        const file = input.files[0];
-        setUploadStatus('Uploading...', 'uploading');
-
-        try {
-            const content = await readFileAsText(file);
-            sendMessage({
-                action: 'upload_plugin',
-                type: 'file',
-                filename: file.name,
-                content: content
-            });
-        } catch (e) {
-            setUploadStatus('Upload failed: ' + e.message, 'error');
-            showToast('Failed to read file: ' + e.message, 'error');
-        }
-
-        input.value = '';
-    }
-
-    async function uploadPluginDirectory() {
-        const input = document.getElementById('pluginDir');
-        if (!input.files.length) return;
-
-        setUploadStatus('Uploading directory...', 'uploading');
-
-        try {
-            const files = {};
-            for (const file of input.files) {
-                const content = await readFileAsText(file);
-                // webkitRelativePath gives us the relative path including directory name
-                files[file.webkitRelativePath] = content;
-            }
-
-            // Get the directory name from the first file's path
-            const firstPath = Object.keys(files)[0];
-            const dirName = firstPath.split('/')[0];
-
-            sendMessage({
-                action: 'upload_plugin',
-                type: 'directory',
-                dirname: dirName,
-                files: files
-            });
-        } catch (e) {
-            setUploadStatus('Upload failed: ' + e.message, 'error');
-            showToast('Failed to read directory: ' + e.message, 'error');
-        }
-
-        input.value = '';
-    }
-
-    function readFileAsText(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsText(file);
-        });
-    }
-
-    function sendMessage(message) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(message));
-        } else {
-            showToast('Not connected to server', 'error');
-        }
-    }
-
-    function requestRefresh() {
-        sendMessage({ action: 'refresh' });
-    }
-
-    // Optimistic updates for enable/disable so the UI reflects the change immediately
-    function optimisticSetInitialized(name, kind, initialized) {
-        const lists = kind === 'plugin' ? currentPlugins : currentComponents;
-        const idx = lists.findIndex(c => c.name === name);
-        if (idx !== -1) {
-            const item = Object.assign({}, lists[idx]);
-            item.state = Object.assign({}, item.state || {}, { is_initialized: !!initialized });
-            lists[idx] = item;
-        }
-    }
-
-    // Generic enable/disable that maps kind -> action.
-    // For kind 'plugin' it will send enable_plugin/disable_plugin.
-    // For kind 'component' it will send enable_component/disable_component.
-    function enableItem(name, kind) {
-        if (!name) return;
-        // optimistic UI
-        optimisticSetInitialized(name, kind, true);
-        renderCombinedItems(name);
-        refreshDetailsIfOpen(name);
-
-        if (kind === 'plugin') {
-            sendMessage({ action: 'enable_plugin', name });
-        } else {
-            sendMessage({ action: 'enable_component', name });
-        }
-    }
-
-    function disableItem(name, kind) {
-        if (!name) return;
-        // optimistic UI
-        optimisticSetInitialized(name, kind, false);
-        renderCombinedItems(name);
-        refreshDetailsIfOpen(name);
-
-        if (kind === 'plugin') {
-            sendMessage({ action: 'disable_plugin', name });
-        } else {
-            sendMessage({ action: 'disable_component', name });
-        }
-    }
-
-    function refreshDetailsIfOpen(name) {
-        const panel = document.getElementById('detailsPanel');
-        if (panel.classList.contains('open')) {
-            const title = document.getElementById('panelTitle').textContent;
-            if (title === name) {
-                const item = findItemByName(name);
-                if (item) populateDetailsPanel(item);
-            }
-        }
-    }
-
-    // Find item in full (unfiltered) combined lists
-    function getCombinedAll() {
-        const combinedMap = new Map();
-        (currentComponents || []).forEach(c => combinedMap.set(c.name, Object.assign({ _kind: 'component' }, c)));
-        (currentPlugins || []).forEach(p => combinedMap.set(p.name, Object.assign({ _kind: 'plugin' }, p)));
-        return Array.from(combinedMap.values());
-    }
-
+    // Component selection and details
     function findItemByName(name) {
         if (!name) return null;
-        const all = getCombinedAll();
+        const all = getAllItemsCombined();
         return all.find(i => i.name === name) || null;
     }
 
-    // DETAILS PANEL
-    function openDetails(name) {
+    function selectComponent(name) {
+        selectedComponent = name;
         const item = findItemByName(name);
-        if (!item) return;
-        const panel = document.getElementById('detailsPanel');
-        const container = document.querySelector('.container');
-        populateDetailsPanel(item);
-        panel.classList.add('open');
-        panel.setAttribute('aria-hidden', 'false');
-        container.classList.add('with-panel');
+        if (item) {
+            populateDetailsPanel(item);
+        }
+        renderAllSections();
     }
-
-    function closeDetails() {
-        const panel = document.getElementById('detailsPanel');
-        const container = document.querySelector('.container');
-        panel.classList.remove('open');
-        panel.setAttribute('aria-hidden', 'true');
-        container.classList.remove('with-panel');
-    }
-
-    // Store current panel item for config saving
-    let currentPanelItem = null;
 
     function populateDetailsPanel(item) {
         currentPanelItem = item;
 
         document.getElementById('panelTitle').textContent = item.name;
+        document.getElementById('panelVersion').textContent = 'v' + (item.version || '');
         document.getElementById('panelDesc').textContent = item.description || 'No description available.';
         document.getElementById('panelKind').textContent = item._kind ? item._kind.charAt(0).toUpperCase() + item._kind.slice(1) : '-';
         document.getElementById('panelType').textContent = item.type ? item.type.charAt(0).toUpperCase() + item.type.slice(1) : '-';
-        document.getElementById('panelVersion').textContent = item.version || '-';
 
-        // status with badge
         const statusEl = document.getElementById('panelStatus');
-        statusEl.innerHTML = `<span class="status ${getStatusClass(item)}" style="padding:4px 10px;font-size:0.8em;min-width:auto;">${getStatusLabel(item)}</span>`;
+        statusEl.innerHTML = `<span class="status ${getStatusClass(item)}">${getStatusLabel(item)}</span>`;
 
-        // show compact state object
         const stateBox = document.getElementById('panelStateBox');
         stateBox.textContent = JSON.stringify(item.state || {}, null, 2);
 
-        // Populate internal data
+        // Internals
         const internals = item.internals || {};
-        document.getElementById('panelModule').textContent = internals.module || '-';
         document.getElementById('panelWire').textContent = internals.wire ? 'Yes' : 'No';
 
-        // Render dependencies section
+        // Dependencies
         const depsContainer = document.getElementById('panelDependencies');
         let depsHtml = '';
 
-        // Helper to create clickable badge
         const clickableBadge = (name, badgeClass) =>
-            `<span class="type-badge ${badgeClass} dep-link" style="font-size: 0.8em; padding: 4px 8px; cursor: pointer;" data-component="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
+            `<span class="type-badge ${badgeClass}" style="cursor:pointer;margin:2px;" onclick="selectComponent('${escapeJs(name)}')">${escapeHtml(name)}</span>`;
 
-        // Requires (dependencies)
         const requires = internals.requires || [];
         if (requires.length > 0) {
-            depsHtml += `
-                <div style="margin-bottom: 10px;">
-                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Depends on</span>
-                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
-                        ${requires.map(name => clickableBadge(name, 'type-library')).join('')}
-                    </div>
-                </div>
-            `;
+            depsHtml += `<div style="margin-bottom:10px;"><span style="color:#666;font-size:0.75em;text-transform:uppercase;">Depends on</span><div style="margin-top:4px;">${requires.map(n => clickableBadge(n, 'type-library')).join('')}</div></div>`;
         }
 
-        // Required by (dependents)
         const requiredBy = item.required_by || [];
         if (requiredBy.length > 0) {
-            depsHtml += `
-                <div style="margin-bottom: 10px;">
-                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Required by</span>
-                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
-                        ${requiredBy.map(name => clickableBadge(name, 'type-plugin')).join('')}
-                    </div>
-                </div>
-            `;
+            depsHtml += `<div style="margin-bottom:10px;"><span style="color:#666;font-size:0.75em;text-transform:uppercase;">Required by</span><div style="margin-top:4px;">${requiredBy.map(n => clickableBadge(n, 'type-plugin')).join('')}</div></div>`;
         }
 
-        // Initialized by
         const initializedBy = internals.initialized_by || [];
         if (initializedBy.length > 0) {
-            depsHtml += `
-                <div style="margin-bottom: 10px;">
-                    <span class="label" style="color: #777; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px;">Initialized by</span>
-                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
-                        ${initializedBy.map(name => clickableBadge(name, 'type-app')).join('')}
-                    </div>
-                </div>
-            `;
+            depsHtml += `<div style="margin-bottom:10px;"><span style="color:#666;font-size:0.75em;text-transform:uppercase;">Initialized by</span><div style="margin-top:4px;">${initializedBy.map(n => clickableBadge(n, 'type-app')).join('')}</div></div>`;
         }
 
         if (!depsHtml) {
-            depsHtml = '<span style="color: #666; font-size: 0.9em;">No dependencies</span>';
+            depsHtml = '<span style="color:#666;font-size:0.9em;">No dependencies</span>';
         }
-
         depsContainer.innerHTML = depsHtml;
 
-        // Add click handlers to dependency badges
-        depsContainer.querySelectorAll('.dep-link').forEach(el => {
-            el.addEventListener('click', () => {
-                const componentName = el.getAttribute('data-component');
-                openDetails(componentName);
-            });
-        });
-
-        // Render configuration form if item has config
+        // Config
         renderConfigForm(item);
 
-        // actions
+        // Actions
         const actions = document.getElementById('panelActions');
         actions.innerHTML = '';
 
@@ -1419,31 +1205,23 @@
                 btn.disabled = true;
                 btn.textContent = 'Please wait...';
                 actions.appendChild(btn);
+            } else if (isActive) {
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-disable';
+                btn.textContent = 'Disable';
+                btn.onclick = () => disableItem(item.name, item._kind);
+                actions.appendChild(btn);
             } else {
-                const btnEnable = document.createElement('button');
-                btnEnable.className = 'btn btn-enable';
-                btnEnable.textContent = 'Enable';
-                btnEnable.onclick = () => enableItem(item.name, item._kind);
-
-                const btnDisable = document.createElement('button');
-                btnDisable.className = 'btn btn-disable';
-                btnDisable.textContent = 'Disable';
-                btnDisable.onclick = () => disableItem(item.name, item._kind);
-
-                if (isActive) {
-                    btnEnable.disabled = true;
-                    actions.appendChild(btnDisable);
-                } else {
-                    btnDisable.disabled = true;
-                    actions.appendChild(btnEnable);
-                }
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-enable';
+                btn.textContent = 'Enable';
+                btn.onclick = () => enableItem(item.name, item._kind);
+                actions.appendChild(btn);
             }
         }
     }
 
-    // Counter for unique IDs in tree nodes
-    let treeNodeIdCounter = 0;
-
+    // Config form rendering
     function renderConfigForm(item) {
         const configSection = document.getElementById('panelConfigSection');
         const configForm = document.getElementById('panelConfigForm');
@@ -1469,18 +1247,15 @@
             const defaultValue = fieldSchema.default;
             const effectiveValue = currentValue !== undefined ? currentValue : defaultValue;
 
-            // Check actual value type - if value is object/array, treat it as such regardless of schema
             let effectiveType = fieldType;
             if (typeof effectiveValue === 'object' && effectiveValue !== null) {
                 effectiveType = Array.isArray(effectiveValue) ? 'array' : 'object';
             }
 
-            // Check if this is an array or object type
             if (effectiveType === 'array' || effectiveType === 'object') {
                 const treeNode = renderTreeNode(fieldName, fieldTitle, effectiveType, fieldSchema, effectiveValue, fieldDescription, false);
                 configForm.appendChild(treeNode);
             } else {
-                // Simple field rendering (existing logic)
                 const fieldDiv = document.createElement('div');
                 fieldDiv.className = 'config-field';
 
@@ -1505,7 +1280,6 @@
                     label.textContent = fieldTitle;
                     fieldDiv.appendChild(label);
 
-                    // Check if field has enum values (from Literal type)
                     if (fieldSchema.enum && Array.isArray(fieldSchema.enum)) {
                         const select = document.createElement('select');
                         select.id = `config_${fieldName}`;
@@ -1517,9 +1291,7 @@
                             const option = document.createElement('option');
                             option.value = enumValue;
                             option.textContent = enumValue;
-                            if (effectiveValue === enumValue) {
-                                option.selected = true;
-                            }
+                            if (effectiveValue === enumValue) option.selected = true;
                             select.appendChild(option);
                         });
 
@@ -1562,7 +1334,6 @@
         node.dataset.treePath = path;
         node.dataset.treeType = type;
 
-        // Header with toggle, label, and type badge
         const header = document.createElement('div');
         header.className = 'config-tree-header';
 
@@ -1570,15 +1341,14 @@
         toggle.className = 'config-tree-toggle';
         toggle.textContent = '▼';
         toggle.type = 'button';
-        toggle.onclick = () => {
+        toggle.onclick = (e) => {
+            e.stopPropagation();
             const children = node.querySelector(':scope > .config-tree-children');
             if (children) {
                 const isCollapsed = children.classList.toggle('collapsed');
                 toggle.textContent = isCollapsed ? '▶' : '▼';
                 const addRow = node.querySelector(':scope > .config-tree-add-row');
-                if (addRow) {
-                    addRow.style.display = isCollapsed ? 'none' : 'flex';
-                }
+                if (addRow) addRow.style.display = isCollapsed ? 'none' : 'flex';
             }
         };
         header.appendChild(toggle);
@@ -1589,164 +1359,129 @@
         header.appendChild(labelSpan);
 
         const typeBadge = document.createElement('span');
-        typeBadge.className = 'config-tree-type';
-        typeBadge.textContent = type === 'array' ? 'list' : 'dict';
+        typeBadge.className = 'config-tree-type-badge';
+        typeBadge.textContent = type;
         header.appendChild(typeBadge);
 
         node.appendChild(header);
 
-        if (description) {
-            const desc = document.createElement('div');
-            desc.className = 'field-description';
-            desc.textContent = description;
-            node.appendChild(desc);
-        }
+        const children = document.createElement('div');
+        children.className = 'config-tree-children';
 
-        // Children container
-        const childrenContainer = document.createElement('div');
-        childrenContainer.className = 'config-tree-children';
-        childrenContainer.id = nodeId + '_children';
-
-        if (type === 'array') {
-            renderArrayItems(childrenContainer, path, schema, value || []);
-        } else if (type === 'object') {
-            renderObjectItems(childrenContainer, path, schema, value || {});
-        }
-
-        node.appendChild(childrenContainer);
-
-        // Add button with type selector
-        const allowedTypes = getAllowedTypes(type, schema);
-
-        // Only show add row if there are allowed types
-        if (allowedTypes.length > 0) {
-            const addRow = document.createElement('div');
-            addRow.className = 'config-tree-add-row';
-
-            const typeSelect = document.createElement('select');
-            typeSelect.className = 'config-tree-type-select';
-
-            const typeLabels = {
-                'string': 'Text',
-                'number': 'Number',
-                'integer': 'Integer',
-                'boolean': 'Boolean',
-                'object': 'Dict',
-                'array': 'List'
-            };
-
-            allowedTypes.forEach(t => {
-                const option = document.createElement('option');
-                option.value = t;
-                option.textContent = typeLabels[t] || t;
-                typeSelect.appendChild(option);
+        if (type === 'array' && Array.isArray(value)) {
+            const itemSchema = schema.items || {};
+            const itemType = itemSchema.type || 'string';
+            value.forEach((v, idx) => {
+                addArrayItemElement(children, path, idx, itemSchema, itemType, v);
             });
-
-            // Only show selector if multiple types are allowed
-            if (allowedTypes.length > 1) {
-                addRow.appendChild(typeSelect);
+        } else if (type === 'object' && value && typeof value === 'object') {
+            const props = schema.properties || {};
+            for (const [key, val] of Object.entries(value)) {
+                const propSchema = props[key] || {};
+                const propType = propSchema.type || (typeof val === 'object' ? (Array.isArray(val) ? 'array' : 'object') : typeof val);
+                addObjectPropertyElement(children, path, key, propSchema, propType, val, !!props[key]);
             }
+        }
 
-            const addBtn = document.createElement('button');
-            addBtn.className = 'config-tree-add-btn';
-            addBtn.type = 'button';
-            addBtn.textContent = type === 'array' ? '+ Add Item' : '+ Add Property';
-            addBtn.onclick = () => {
-                const selectedType = allowedTypes.length > 1 ? typeSelect.value : allowedTypes[0];
-                if (type === 'array') {
-                    addArrayItemWithType(childrenContainer, path, schema, selectedType);
-                } else {
-                    addObjectPropertyWithType(childrenContainer, path, schema, selectedType);
-                }
-            };
-            addRow.appendChild(addBtn);
+        node.appendChild(children);
+
+        // Add "Add Property" row for objects (allows adding new key-value pairs)
+        if (type === 'object') {
+            const addRow = createAddPropertyRow(node, children, path);
             node.appendChild(addRow);
         }
 
         return node;
     }
 
-    function renderArrayItems(container, basePath, schema, items) {
-        const itemSchema = schema.items || {};
-        const itemType = itemSchema.type || 'string';
+    function createAddPropertyRow(node, childrenContainer, basePath) {
+        const addRow = document.createElement('div');
+        addRow.className = 'config-tree-add-row';
 
-        items.forEach((item, index) => {
-            const itemPath = `${basePath}[${index}]`;
-            addArrayItemElement(container, basePath, index, itemSchema, itemType, item);
-        });
-    }
+        const keyInput = document.createElement('input');
+        keyInput.type = 'text';
+        keyInput.placeholder = 'Key';
+        keyInput.style.cssText = 'flex:1;min-width:80px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;color:#eee;font-size:0.85em;';
 
-    function addArrayItem(container, basePath, schema) {
-        const itemSchema = schema.items || {};
-        const itemType = itemSchema.type || 'string';
-        addArrayItemWithType(container, basePath, schema, itemType);
-    }
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'config-tree-type-select';
+        typeSelect.innerHTML = `
+            <option value="string">string</option>
+            <option value="integer">integer</option>
+            <option value="number">number</option>
+            <option value="boolean">boolean</option>
+        `;
 
-    function addArrayItemWithType(container, basePath, schema, selectedType) {
-        const itemSchema = schema.items || {};
-        const existingItems = container.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
-        const newIndex = existingItems.length;
+        const valueInput = document.createElement('input');
+        valueInput.type = 'text';
+        valueInput.placeholder = 'Value';
+        valueInput.style.cssText = 'flex:2;min-width:100px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;color:#eee;font-size:0.85em;';
 
-        let defaultValue;
-        if (selectedType === 'object') {
-            // If itemSchema has properties (BaseModel), create default values for each property
-            if (itemSchema.properties) {
-                defaultValue = {};
-                for (const [key, propSchema] of Object.entries(itemSchema.properties)) {
-                    defaultValue[key] = getDefaultForSchema(propSchema);
-                }
-            } else {
-                defaultValue = {};
+        const addBtn = document.createElement('button');
+        addBtn.className = 'config-tree-btn add';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add property';
+        addBtn.onclick = () => {
+            const key = keyInput.value.trim();
+            if (!key) {
+                showToast('Property key is required', 'error');
+                return;
             }
-        } else if (selectedType === 'array') {
-            defaultValue = [];
-        } else if (selectedType === 'boolean') {
-            defaultValue = false;
-        } else if (selectedType === 'integer' || selectedType === 'number') {
-            defaultValue = 0;
-        } else {
-            defaultValue = '';
-        }
 
-        addArrayItemElement(container, basePath, newIndex, itemSchema, selectedType, defaultValue);
+            // Check if key already exists
+            const existingItem = childrenContainer.querySelector(`[data-property-key="${key}"]`);
+            if (existingItem) {
+                showToast('Property already exists', 'error');
+                return;
+            }
+
+            const propType = typeSelect.value;
+            let value = valueInput.value;
+
+            // Convert value based on type
+            if (propType === 'integer') {
+                value = parseInt(value, 10) || 0;
+            } else if (propType === 'number') {
+                value = parseFloat(value) || 0;
+            } else if (propType === 'boolean') {
+                value = value.toLowerCase() === 'true' || value === '1';
+            }
+
+            // Add the property element
+            addObjectPropertyElement(childrenContainer, basePath, key, {}, propType, value, false);
+
+            // Clear inputs
+            keyInput.value = '';
+            valueInput.value = '';
+        };
+
+        addRow.appendChild(keyInput);
+        addRow.appendChild(typeSelect);
+        addRow.appendChild(valueInput);
+        addRow.appendChild(addBtn);
+
+        return addRow;
     }
 
     function addArrayItemElement(container, basePath, index, itemSchema, itemType, value) {
         const itemPath = `${basePath}[${index}]`;
 
-        // Check actual value type - if value is object/array, treat it as such regardless of schema
         let effectiveType = itemType;
         if (typeof value === 'object' && value !== null) {
             effectiveType = Array.isArray(value) ? 'array' : 'object';
         }
 
         if (effectiveType === 'object' || effectiveType === 'array') {
-            // Nested structure
             const nestedNode = renderTreeNode(itemPath, `[${index}]`, effectiveType, itemSchema, value, '', true);
-            // Add remove button to the header
-            const header = nestedNode.querySelector('.config-tree-header');
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'config-tree-btn remove';
-            removeBtn.type = 'button';
-            removeBtn.textContent = '×';
-            removeBtn.title = 'Remove item';
-            removeBtn.onclick = () => {
-                nestedNode.remove();
-                reindexArrayItems(container, basePath);
-            };
-            header.appendChild(removeBtn);
             container.appendChild(nestedNode);
         } else {
-            // Simple value
             const itemDiv = document.createElement('div');
             itemDiv.className = 'config-tree-item';
             itemDiv.dataset.arrayIndex = index;
 
             const keySpan = document.createElement('div');
             keySpan.className = 'config-tree-item-key';
-            const indexLabel = document.createElement('span');
-            indexLabel.textContent = `[${index}]`;
-            keySpan.appendChild(indexLabel);
+            keySpan.textContent = `[${index}]`;
             itemDiv.appendChild(keySpan);
 
             const valueDiv = document.createElement('div');
@@ -1756,259 +1491,30 @@
             valueDiv.appendChild(input);
             itemDiv.appendChild(valueDiv);
 
-            const actions = document.createElement('div');
-            actions.className = 'config-tree-actions';
-
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'config-tree-btn remove';
-            removeBtn.type = 'button';
-            removeBtn.textContent = '×';
-            removeBtn.title = 'Remove item';
-            removeBtn.onclick = () => {
-                itemDiv.remove();
-                reindexArrayItems(container, basePath);
-            };
-            actions.appendChild(removeBtn);
-            itemDiv.appendChild(actions);
-
             container.appendChild(itemDiv);
         }
-    }
-
-    function reindexArrayItems(container, basePath) {
-        const items = container.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
-        items.forEach((item, newIndex) => {
-            const newPath = `${basePath}[${newIndex}]`;
-
-            if (item.classList.contains('config-tree-item')) {
-                // Simple item
-                item.dataset.arrayIndex = newIndex;
-                const keySpan = item.querySelector('.config-tree-item-key span');
-                if (keySpan) keySpan.textContent = `[${newIndex}]`;
-                const input = item.querySelector('input, select');
-                if (input) input.dataset.configPath = newPath;
-            } else if (item.classList.contains('config-tree-node')) {
-                // Nested node - update path and reindex children recursively
-                item.dataset.treePath = newPath;
-                const labelSpan = item.querySelector('.config-tree-header .config-tree-label');
-                if (labelSpan) labelSpan.textContent = `[${newIndex}]`;
-                // Recursively update child paths
-                updateNestedPaths(item, newPath);
-            }
-        });
-    }
-
-    function updateNestedPaths(node, newBasePath) {
-        const children = node.querySelector('.config-tree-children');
-        if (!children) return;
-
-        const isArray = node.dataset.treeType === 'array';
-
-        if (isArray) {
-            const items = children.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
-            items.forEach((item, index) => {
-                const newPath = `${newBasePath}[${index}]`;
-                if (item.classList.contains('config-tree-item')) {
-                    const input = item.querySelector('input, select');
-                    if (input) input.dataset.configPath = newPath;
-                } else {
-                    item.dataset.treePath = newPath;
-                    updateNestedPaths(item, newPath);
-                }
-            });
-        } else {
-            // Object
-            const items = children.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
-            items.forEach((item) => {
-                if (item.classList.contains('config-tree-item')) {
-                    const keyInput = item.querySelector('.config-tree-item-key input');
-                    const key = keyInput ? keyInput.value : '';
-                    const newPath = `${newBasePath}.${key}`;
-                    const valueInput = item.querySelector('.config-tree-item-value input, .config-tree-item-value select');
-                    if (valueInput) valueInput.dataset.configPath = newPath;
-                } else {
-                    const key = item.dataset.objectKey || '';
-                    const newPath = `${newBasePath}.${key}`;
-                    item.dataset.treePath = newPath;
-                    updateNestedPaths(item, newPath);
-                }
-            });
-        }
-    }
-
-    function renderObjectItems(container, basePath, schema, obj) {
-        const propSchema = schema.properties || {};
-        const additionalProps = schema.additionalProperties;
-        const requiredFields = schema.required || [];
-
-        // First, render all defined schema properties (fixed fields)
-        for (const [key, keySchema] of Object.entries(propSchema)) {
-            const value = obj.hasOwnProperty(key) ? obj[key] : getDefaultForSchema(keySchema);
-            const valueType = getSchemaType(keySchema, value);
-
-            addObjectPropertyElement(container, basePath, key, keySchema, valueType, value, true);
-        }
-
-        // Then, render any additional properties from the value that aren't in schema
-        for (const [key, value] of Object.entries(obj)) {
-            if (propSchema.hasOwnProperty(key)) continue; // Already rendered above
-
-            const keySchema = (typeof additionalProps === 'object' && additionalProps !== null)
-                ? additionalProps
-                : { type: 'string' };
-            const valueType = typeof value === 'object' && value !== null
-                ? (Array.isArray(value) ? 'array' : 'object')
-                : (keySchema.type || inferType(value));
-
-            addObjectPropertyElement(container, basePath, key, keySchema, valueType, value, false);
-        }
-    }
-
-    function getSchemaType(schema, value) {
-        // If schema explicitly defines type, use it
-        if (schema.type) {
-            return schema.type;
-        }
-
-        // If schema has properties, it's an object
-        if (schema.properties) {
-            return 'object';
-        }
-
-        // If schema has items, it's an array
-        if (schema.items) {
-            return 'array';
-        }
-
-        // If schema has $ref or allOf/oneOf/anyOf with object structure, treat as object
-        if (schema.$ref || schema.allOf || schema.oneOf || schema.anyOf) {
-            return 'object';
-        }
-
-        // Fall back to inferring from value
-        if (typeof value === 'object' && value !== null) {
-            return Array.isArray(value) ? 'array' : 'object';
-        }
-
-        return inferType(value);
-    }
-
-    function getDefaultForSchema(schema) {
-        if (schema.default !== undefined) {
-            return schema.default;
-        }
-
-        const type = getSchemaType(schema, undefined);
-
-        switch (type) {
-            case 'object': return {};
-            case 'array': return [];
-            case 'boolean': return false;
-            case 'integer':
-            case 'number': return 0;
-            default: return '';
-        }
-    }
-
-    function addObjectProperty(container, basePath, schema) {
-        const additionalProps = schema.additionalProperties || { type: 'string' };
-        const valueType = additionalProps.type || 'string';
-        addObjectPropertyWithType(container, basePath, schema, valueType);
-    }
-
-    function addObjectPropertyWithType(container, basePath, schema, selectedType) {
-        const additionalProps = schema.additionalProperties || { type: 'string' };
-        const propSchema = (typeof additionalProps === 'object' && additionalProps !== null)
-            ? additionalProps
-            : { type: selectedType };
-
-        let defaultValue;
-        if (selectedType === 'object') {
-            // If additionalProperties has properties (BaseModel), create default values
-            if (propSchema.properties) {
-                defaultValue = {};
-                for (const [key, keySchema] of Object.entries(propSchema.properties)) {
-                    defaultValue[key] = getDefaultForSchema(keySchema);
-                }
-            } else {
-                defaultValue = {};
-            }
-        } else if (selectedType === 'array') {
-            defaultValue = [];
-        } else if (selectedType === 'boolean') {
-            defaultValue = false;
-        } else if (selectedType === 'integer' || selectedType === 'number') {
-            defaultValue = 0;
-        } else {
-            defaultValue = '';
-        }
-
-        addObjectPropertyElement(container, basePath, '', propSchema, selectedType, defaultValue, false);
     }
 
     function addObjectPropertyElement(container, basePath, key, keySchema, valueType, value, isFixed) {
         const itemPath = key ? `${basePath}.${key}` : basePath;
 
-        // Check actual value type - if value is object/array, treat it as such regardless of schema
         let effectiveType = valueType;
         if (typeof value === 'object' && value !== null) {
             effectiveType = Array.isArray(value) ? 'array' : 'object';
         }
 
         if (effectiveType === 'object' || effectiveType === 'array') {
-            // Nested structure
             const nestedNode = renderTreeNode(itemPath, key || '(new)', effectiveType, keySchema, value, '', true);
-            nestedNode.dataset.objectKey = key;
-
-            // Add editable key input if not fixed
-            const header = nestedNode.querySelector('.config-tree-header');
-            if (!isFixed) {
-                const labelSpan = header.querySelector('.config-tree-label');
-                const keyInput = document.createElement('input');
-                keyInput.type = 'text';
-                keyInput.value = key;
-                keyInput.placeholder = 'key';
-                keyInput.className = 'config-tree-key-input';
-                keyInput.style.cssText = 'background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 8px; color: #00d9ff; font-size: 0.85em; width: 80px;';
-                keyInput.onchange = () => {
-                    nestedNode.dataset.objectKey = keyInput.value;
-                    const newPath = `${basePath}.${keyInput.value}`;
-                    nestedNode.dataset.treePath = newPath;
-                    updateNestedPaths(nestedNode, newPath);
-                };
-                labelSpan.replaceWith(keyInput);
-
-                // Add remove button only for non-fixed properties
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'config-tree-btn remove';
-                removeBtn.type = 'button';
-                removeBtn.textContent = '×';
-                removeBtn.title = 'Remove property';
-                removeBtn.onclick = () => nestedNode.remove();
-                header.appendChild(removeBtn);
-            }
-
+            nestedNode.dataset.propertyKey = key;
             container.appendChild(nestedNode);
         } else {
-            // Simple value
             const itemDiv = document.createElement('div');
             itemDiv.className = 'config-tree-item';
+            itemDiv.dataset.propertyKey = key;
 
             const keyDiv = document.createElement('div');
             keyDiv.className = 'config-tree-item-key';
-
-            if (isFixed) {
-                const keySpan = document.createElement('span');
-                keySpan.textContent = key;
-                keyDiv.appendChild(keySpan);
-            } else {
-                const keyInput = document.createElement('input');
-                keyInput.type = 'text';
-                keyInput.value = key;
-                keyInput.placeholder = 'key';
-                keyInput.dataset.isKey = 'true';
-                keyDiv.appendChild(keyInput);
-            }
+            keyDiv.textContent = key;
             itemDiv.appendChild(keyDiv);
 
             const valueDiv = document.createElement('div');
@@ -2018,19 +1524,20 @@
             valueDiv.appendChild(input);
             itemDiv.appendChild(valueDiv);
 
-            // Only add remove button for non-fixed properties
+            // Add delete button for dynamically added properties (not fixed schema properties)
             if (!isFixed) {
-                const actions = document.createElement('div');
-                actions.className = 'config-tree-actions';
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'config-tree-actions';
 
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'config-tree-btn remove';
-                removeBtn.type = 'button';
-                removeBtn.textContent = '×';
-                removeBtn.title = 'Remove property';
-                removeBtn.onclick = () => itemDiv.remove();
-                actions.appendChild(removeBtn);
-                itemDiv.appendChild(actions);
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'config-tree-btn remove';
+                deleteBtn.textContent = '×';
+                deleteBtn.title = 'Remove property';
+                deleteBtn.onclick = () => {
+                    itemDiv.remove();
+                };
+                actionsDiv.appendChild(deleteBtn);
+                itemDiv.appendChild(actionsDiv);
             }
 
             container.appendChild(itemDiv);
@@ -2038,7 +1545,6 @@
     }
 
     function createValueInput(path, type, value, schema = null) {
-        // Check if schema has enum values (from Literal type)
         if (schema && schema.enum && Array.isArray(schema.enum)) {
             const select = document.createElement('select');
             select.dataset.configPath = path;
@@ -2048,9 +1554,7 @@
                 const option = document.createElement('option');
                 option.value = enumValue;
                 option.textContent = enumValue;
-                if (value === enumValue) {
-                    option.selected = true;
-                }
+                if (value === enumValue) option.selected = true;
                 select.appendChild(option);
             });
 
@@ -2064,7 +1568,6 @@
         if (type === 'boolean') {
             input.type = 'checkbox';
             input.checked = !!value;
-            input.style.width = 'auto';
         } else if (type === 'integer') {
             input.type = 'number';
             input.step = '1';
@@ -2081,235 +1584,243 @@
         return input;
     }
 
-    function getAllowedTypes(parentType, schema) {
-        const allTypes = ['string', 'number', 'integer', 'boolean', 'object', 'array'];
-
-        if (parentType === 'array') {
-            // For arrays, check items schema
-            const itemSchema = schema.items || {};
-
-            // Check if items has oneOf/anyOf for multiple types
-            if (itemSchema.oneOf || itemSchema.anyOf) {
-                const types = (itemSchema.oneOf || itemSchema.anyOf)
-                    .map(s => s.type)
-                    .filter(t => t);
-                return types.length > 0 ? types : allTypes;
-            }
-
-            // Check if items.type is an array of types
-            if (Array.isArray(itemSchema.type)) {
-                return itemSchema.type;
-            }
-
-            // Single type specified
-            if (itemSchema.type) {
-                return [itemSchema.type];
-            }
-
-            // If items has properties, it's a fixed structure - only allow object
-            if (itemSchema.properties) {
-                return ['object'];
-            }
-
-            // No type specified - allow all
-            return allTypes;
-        } else if (parentType === 'object') {
-            // For objects with defined properties (BaseModel), check additionalProperties
-            const hasDefinedProperties = schema.properties && Object.keys(schema.properties).length > 0;
-            const additionalProps = schema.additionalProperties;
-
-            // If object has defined properties and additionalProperties is not explicitly set or is false
-            if (hasDefinedProperties && (additionalProps === undefined || additionalProps === false)) {
-                return []; // No additional properties allowed
-            }
-
-            // If additionalProperties is false, no new properties allowed
-            if (additionalProps === false) {
-                return [];
-            }
-
-            // If additionalProperties is true, allow all types
-            if (additionalProps === true) {
-                return allTypes;
-            }
-
-            // If additionalProperties is an object (schema), extract allowed types
-            if (typeof additionalProps === 'object' && additionalProps !== null) {
-                // Check if additionalProperties has oneOf/anyOf
-                if (additionalProps.oneOf || additionalProps.anyOf) {
-                    const types = (additionalProps.oneOf || additionalProps.anyOf)
-                        .map(s => s.type)
-                        .filter(t => t);
-                    return types.length > 0 ? types : allTypes;
-                }
-
-                // Check if type is an array
-                if (Array.isArray(additionalProps.type)) {
-                    return additionalProps.type;
-                }
-
-                // Single type specified
-                if (additionalProps.type) {
-                    return [additionalProps.type];
-                }
-
-                // Has properties - it's a structured object
-                if (additionalProps.properties) {
-                    return ['object'];
-                }
-
-                return allTypes;
-            }
-
-            // No defined properties and no additionalProperties restriction - allow all
-            return allTypes;
-        }
-
-        return allTypes;
-    }
-
-    function inferType(value) {
-        if (typeof value === 'boolean') return 'boolean';
-        if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'number';
-        return 'string';
-    }
-
-    function getConfigFormValues() {
-        if (!currentPanelItem || !currentPanelItem.config) return null;
-
-        const schema = currentPanelItem.config.schema;
-        const properties = schema.properties || {};
+    function collectConfigValues() {
+        const form = document.getElementById('panelConfigForm');
         const values = {};
 
-        for (const [fieldName, fieldSchema] of Object.entries(properties)) {
-            const fieldType = fieldSchema.type || 'string';
+        form.querySelectorAll('[data-config-path]').forEach(input => {
+            const path = input.dataset.configPath;
+            const type = input.dataset.configType;
+            let value;
 
-            // Check if there's a tree node for this field (could be object/array)
-            const treeNode = document.querySelector(`[data-tree-path="${fieldName}"]`);
-            if (treeNode) {
-                // Get value from tree
-                const treeType = treeNode.dataset.treeType;
-                values[fieldName] = getTreeNodeValue(treeNode, treeType);
+            if (input.type === 'checkbox') {
+                value = input.checked;
+            } else if (type === 'integer') {
+                value = parseInt(input.value, 10) || 0;
+            } else if (type === 'number') {
+                value = parseFloat(input.value) || 0;
+            } else if (type === 'boolean') {
+                value = input.value === 'true' || input.value === '1';
             } else {
-                // Simple field
-                const input = document.getElementById(`config_${fieldName}`);
-                if (!input) continue;
-
-                if (fieldType === 'boolean') {
-                    values[fieldName] = input.checked;
-                } else if (fieldType === 'integer') {
-                    values[fieldName] = parseInt(input.value, 10) || 0;
-                } else if (fieldType === 'number') {
-                    values[fieldName] = parseFloat(input.value) || 0;
-                } else {
-                    values[fieldName] = input.value;
-                }
+                value = input.value;
             }
-        }
+
+            setNestedValue(values, path, value);
+        });
 
         return values;
     }
 
-    function getTreeNodeValue(node, type) {
-        const childrenContainer = node.querySelector(':scope > .config-tree-children');
-        if (!childrenContainer) return type === 'array' ? [] : {};
+    function setNestedValue(obj, path, value) {
+        const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.');
+        let current = obj;
 
-        if (type === 'array') {
-            const result = [];
-            const items = childrenContainer.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
+        for (let i = 0; i < parts.length - 1; i++) {
+            const part = parts[i];
+            const nextPart = parts[i + 1];
+            const isNextArray = /^\d+$/.test(nextPart);
 
-            items.forEach((item) => {
-                if (item.classList.contains('config-tree-node')) {
-                    // Nested object/array
-                    const nestedType = item.dataset.treeType;
-                    result.push(getTreeNodeValue(item, nestedType));
-                } else {
-                    // Simple value
-                    const input = item.querySelector('.config-tree-item-value input, .config-tree-item-value select');
-                    if (input) {
-                        result.push(getInputValue(input));
-                    }
-                }
-            });
-
-            return result;
-        } else {
-            // Object
-            const result = {};
-            const items = childrenContainer.querySelectorAll(':scope > .config-tree-item, :scope > .config-tree-node');
-
-            items.forEach((item) => {
-                let key;
-
-                if (item.classList.contains('config-tree-node')) {
-                    // Nested object/array - get key from data attribute or header input
-                    key = item.dataset.objectKey;
-                    if (!key) {
-                        const keyInput = item.querySelector('.config-tree-header input');
-                        key = keyInput ? keyInput.value : '';
-                    }
-                    if (key) {
-                        const nestedType = item.dataset.treeType;
-                        result[key] = getTreeNodeValue(item, nestedType);
-                    }
-                } else {
-                    // Simple value
-                    const keyElement = item.querySelector('.config-tree-item-key input, .config-tree-item-key span');
-                    key = keyElement ? (keyElement.value !== undefined ? keyElement.value : keyElement.textContent) : '';
-
-                    if (key) {
-                        const valueInput = item.querySelector('.config-tree-item-value input, .config-tree-item-value select');
-                        if (valueInput) {
-                            result[key] = getInputValue(valueInput);
-                        }
-                    }
-                }
-            });
-
-            return result;
+            if (!(part in current)) {
+                current[part] = isNextArray ? [] : {};
+            }
+            current = current[part];
         }
-    }
 
-    function getInputValue(input) {
-        const type = input.dataset.configType || 'string';
-
-        if (input.type === 'checkbox' || type === 'boolean') {
-            return input.checked;
-        } else if (type === 'integer') {
-            return parseInt(input.value, 10) || 0;
-        } else if (type === 'number') {
-            return parseFloat(input.value) || 0;
-        } else {
-            return input.value;
-        }
+        const lastPart = parts[parts.length - 1];
+        current[lastPart] = value;
     }
 
     function saveConfig() {
-        if (!currentPanelItem) {
-            showToast('No component selected', 'error');
-            return;
-        }
+        if (!currentPanelItem) return;
 
-        const configValues = getConfigFormValues();
-        if (!configValues) {
-            showToast('No configuration to save', 'error');
-            return;
+        const values = collectConfigValues();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'save_config',
+                name: currentPanelItem.name,
+                config: values
+            }));
         }
+    }
 
-        sendMessage({
-            action: 'save_config',
-            name: currentPanelItem.name,
-            config: configValues
+    // Enable/Disable with optimistic UI updates
+    function enableItem(name, kind) {
+        // Optimistic UI: immediately show "initializing" state
+        setOptimisticState(name, { is_initialized: false, is_initializing: true, is_shutting_down: false });
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'enable_plugin', name }));
+        }
+    }
+
+    function disableItem(name, kind) {
+        // Optimistic UI: immediately show "shutting_down" state
+        setOptimisticState(name, { is_initialized: true, is_initializing: false, is_shutting_down: true });
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'disable_plugin', name }));
+        }
+    }
+
+    function setOptimisticState(name, state) {
+        // Update component state optimistically for immediate UI feedback
+        const idx = currentComponents.findIndex(c => c.name === name);
+        if (idx >= 0) {
+            currentComponents[idx] = { ...currentComponents[idx], state };
+        }
+        const pidx = currentPlugins.findIndex(p => p.name === name);
+        if (pidx >= 0) {
+            currentPlugins[pidx] = { ...currentPlugins[pidx], state };
+        }
+        renderAllSections(name);
+        if (selectedComponent === name) {
+            selectComponent(selectedComponent);
+        }
+    }
+
+    // Plugin upload
+    function uploadPluginFile() {
+        const input = document.getElementById('pluginFile');
+        const status = document.getElementById('uploadStatus');
+        if (!input.files.length) return;
+
+        const file = input.files[0];
+        const reader = new FileReader();
+        status.textContent = 'Uploading...';
+        status.className = 'upload-status uploading';
+
+        reader.onload = () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: 'upload_plugin',
+                    type: 'file',
+                    filename: file.name,
+                    content: reader.result.split(',')[1]
+                }));
+            }
+            input.value = '';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function uploadPluginDirectory() {
+        const input = document.getElementById('pluginDir');
+        const status = document.getElementById('uploadStatus');
+        if (!input.files.length) return;
+
+        const files = [];
+        let loaded = 0;
+        const total = input.files.length;
+        status.textContent = `Reading ${total} files...`;
+        status.className = 'upload-status uploading';
+
+        const dirname = input.files[0].webkitRelativePath.split('/')[0];
+
+        Array.from(input.files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                files.push({
+                    path: file.webkitRelativePath,
+                    content: reader.result.split(',')[1]
+                });
+                loaded++;
+                if (loaded === total) {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            action: 'upload_plugin',
+                            type: 'directory',
+                            dirname,
+                            files
+                        }));
+                    }
+                    input.value = '';
+                }
+            };
+            reader.readAsDataURL(file);
         });
     }
 
-    document.getElementById('panelClose').addEventListener('click', (e) => { e.stopPropagation(); closeDetails(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetails(); });
+    // Logs
+    function formatTime(timestamp) {
+        if (timestamp === undefined || timestamp === null) {
+            return '--:--:--';
+        }
+        const date = new Date(timestamp * 1000);
+        if (isNaN(date.getTime())) {
+            return '--:--:--';
+        }
+        return date.toLocaleTimeString('en-US', { hour12: false });
+    }
 
-    // Expose helpers for debugging/demo
-    window._debug = { renderAllSections, addLogEntry, renderLogs, getItemsByCategory, openDetails, closeDetails };
+    function renderLogs() {
+        const container = document.getElementById('logsContainer');
+        const searchText = (document.getElementById('logSearch')?.value || '').toLowerCase();
+        const levelFilter = document.getElementById('logLevel')?.value || '';
 
-    // Initialize WebSocket connection
+        const filtered = currentLogs.filter(log => {
+            if (levelFilter && log.level !== levelFilter) return false;
+            if (searchText) {
+                const searchable = `${log.component} ${log.message}`.toLowerCase();
+                if (!searchable.includes(searchText)) return false;
+            }
+            return true;
+        });
+
+        document.getElementById('logCount').textContent = `${filtered.length} logs`;
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="no-logs">No logs match filters</div>';
+            return;
+        }
+
+        container.innerHTML = filtered.map(log => `
+            <div class="log-entry">
+                <span class="log-time">${formatTime(log.timestamp)}</span>
+                <span class="log-level ${log.level}">${log.level}</span>
+                <span class="log-component">${escapeHtml(log.component)}</span>
+                <span class="log-message">${escapeHtml(log.message)}</span>
+            </div>
+        `).join('');
+
+        if (document.getElementById('autoScroll')?.checked) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    function addLogEntry(log) {
+        if (!log) return;
+        currentLogs.push(log);
+        if (currentLogs.length > 1000) currentLogs.shift();
+        renderLogs();
+    }
+
+    function filterLogs() {
+        renderLogs();
+    }
+
+    function clearLogs() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'clear_logs' }));
+        }
+    }
+
+    // Toast notifications
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => toast.classList.add('show'));
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+
+    // Initialize
     connectWebSocket();
 </script>
 </body>

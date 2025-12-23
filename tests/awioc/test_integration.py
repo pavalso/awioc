@@ -13,8 +13,9 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pydantic
 import pytest
+from pydantic_settings import YamlConfigSettingsSource
 
-from src.awioc.bootstrap import create_container, reconfigure_ioc_app
+from src.awioc.bootstrap import reconfigure_ioc_app
 from src.awioc.components.lifecycle import (
     initialize_components,
     shutdown_components,
@@ -794,7 +795,8 @@ class TestConfigurationFlow:
     @pytest.fixture
     def app_with_config(self):
         """Create an app with configuration."""
-        class AppConfig(Settings):
+
+        class AppConfig(IOCBaseConfig):
             app_name: str = "test_app"
             debug: bool = False
 
@@ -949,13 +951,6 @@ shutdown = None
 class TestContainerBootstrap:
     """Integration tests for container bootstrap functions."""
 
-    def test_create_container_returns_interface(self):
-        """Test create_container returns a properly configured interface."""
-        interface = create_container()
-
-        assert isinstance(interface, ContainerInterface)
-        assert interface.raw_container() is not None
-
     def test_reconfigure_ioc_app_flow(self, temp_dir):
         """Test reconfigure_ioc_app configures all components."""
         container = AppContainer()
@@ -974,7 +969,6 @@ class TestContainerBootstrap:
                 "name": "mock_app",
                 "version": "1.0.0",
                 "requires": set(),
-                "base_config": Settings,
                 "wire": False,
             }
 
@@ -1321,7 +1315,7 @@ class TestCompleteLifecycle:
         )
 
         # Define app config
-        class ServiceConfig(Settings):
+        class ServiceConfig(IOCBaseConfig):
             service_name: str = "default_service"
             max_connections: int = 10
 
@@ -1362,7 +1356,6 @@ class TestCompleteLifecycle:
 
         # Configure IOC
         ioc_config = IOCBaseConfig()
-        object.__setattr__(ioc_config, 'config_path', config_file)
         app.__metadata__["_internals"].ioc_config = ioc_config
 
         # Initial config from defaults
@@ -1375,6 +1368,10 @@ class TestCompleteLifecycle:
         assert app.config_history[0]["max_connections"] == 10
 
         # Simulate reconfigure_ioc_app behavior
+        ioc_config.add_sources(lambda x: YamlConfigSettingsSource(
+            x,
+            yaml_file=config_file
+        ))
         reconfigure_ioc_app(interface, components=[app])
 
         # Record after reconfigure

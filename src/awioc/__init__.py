@@ -8,10 +8,8 @@ Consumers should import from here for stable API access.
 from .api import (
     # Bootstrap
     initialize_ioc_app,
-    create_container,
     compile_ioc_app,
     reconfigure_ioc_app,
-    reload_configuration,
     # Lifecycle
     initialize_components,
     shutdown_components,
@@ -59,10 +57,8 @@ from .api import (
 __all__ = [
     # Bootstrap
     "initialize_ioc_app",
-    "create_container",
     "compile_ioc_app",
     "reconfigure_ioc_app",
-    "reload_configuration",
     # Lifecycle
     "initialize_components",
     "shutdown_components",

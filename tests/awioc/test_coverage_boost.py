@@ -47,11 +47,6 @@ class TestBootstrapModuleFunctions:
         from src.awioc.bootstrap import reconfigure_ioc_app
         assert callable(reconfigure_ioc_app)
 
-    def test_reload_configuration_exists(self):
-        """Test reload_configuration function exists."""
-        from src.awioc.bootstrap import reload_configuration
-        assert callable(reload_configuration)
-
 
 class TestDIProvidersModule:
     """Tests for DI providers module functions."""
