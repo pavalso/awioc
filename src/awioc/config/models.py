@@ -58,7 +58,11 @@ class IOCBaseConfig(Settings):
             *sources: Callable[[pydantic.ConfigDict], PydanticBaseSettingsSource],
             index: int = -1,
     ) -> None:
-        _sources.insert(index, *sources)
+        # if index is -1, append to the end
+        if index == -1:
+            _sources.extend(sources)
+        else:
+            _sources.insert(index, *sources)
 
     @classmethod
     def settings_customise_sources(

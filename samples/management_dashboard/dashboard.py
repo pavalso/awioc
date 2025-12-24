@@ -443,31 +443,26 @@ class WebSocketManager:
         if not prefix:
             return None
 
+        # Get the merged config values from awioc (includes YAML, .env, .{context}.env)
         values = {}
         try:
-            # First try to get config from the container
-            current_config = self._container.provided_config(config_model)
-            if current_config:
-                values = current_config.model_dump()
+            provided_config = self._container.provided_config(config_model)
+            if provided_config:
+                # Use model_dump to get all values as a dict
+                values = provided_config.model_dump()
+                # Make values JSON serializable
                 values = self._make_json_serializable(values)
         except Exception:
-            pass
-
-        # Also try to read directly from the config file for the most up-to-date values
-        try:
-            ioc_config = self._container.ioc_config_model
-            config_path = ioc_config.config_path
-            if config_path and config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    yaml_content = yaml.safe_load(f) or {}
-                # Get values under the prefix key
-                if prefix in yaml_content:
-                    file_values = yaml_content[prefix]
-                    if isinstance(file_values, dict):
-                        # Merge file values with container values (file takes precedence)
-                        values = {**values, **self._make_json_serializable(file_values)}
-        except Exception:
-            pass
+            # Fallback: get default values from the model fields
+            try:
+                for field_name, field_info in config_model.model_fields.items():
+                    if field_info.default is not None and field_info.default is not PydanticUndefined:
+                        default_val = field_info.default
+                        if isinstance(default_val, pydantic.BaseModel):
+                            default_val = default_val.model_dump()
+                        values[field_name] = self._make_json_serializable(default_val)
+            except Exception:
+                pass
 
         schema = self._normalize_pydantic_schema(config_model)
 
@@ -509,11 +504,58 @@ class WebSocketManager:
             if component_internals(c).is_initialized
         )
 
-        # Get config file path from IOCBaseConfig
+        # Get config file paths from IOCBaseConfig
         config_file_path = None
+        config_targets = []
         try:
             ioc_config = self._container.ioc_config_model
-            config_file_path = str(ioc_config.config_path)
+            config_path = ioc_config.config_path
+            config_file_path = str(config_path) if config_path else None
+
+            if config_path:
+                config_dir = config_path.parent
+
+                # YAML config file (always available)
+                config_targets.append({
+                    "id": "yaml",
+                    "label": f"YAML ({config_path.name})",
+                    "path": str(config_path),
+                    "exists": config_path.exists()
+                })
+
+                # Base .env file
+                env_path = config_dir / ".env"
+                config_targets.append({
+                    "id": "env",
+                    "label": ".env",
+                    "path": str(env_path),
+                    "exists": env_path.exists()
+                })
+
+                # Context-specific .env file (if context is set or inferred from config filename)
+                context = ioc_config.context
+
+                # Try to infer context from config filename if not explicitly set
+                # Patterns: dev.conf.yaml, ioc.dev.yaml, config.dev.yaml, etc.
+                if not context and config_path:
+                    stem = config_path.stem  # filename without extension
+                    # Pattern: {context}.conf or {context}.config
+                    if stem.endswith('.conf') or stem.endswith('.config'):
+                        context = stem.rsplit('.', 1)[0]
+                    # Pattern: ioc.{context} or config.{context}
+                    elif '.' in stem:
+                        parts = stem.split('.')
+                        if len(parts) == 2 and parts[0] in ('ioc', 'config', 'conf'):
+                            context = parts[1]
+
+                if context:
+                    context_env_path = config_dir / f".{context}.env"
+                    config_targets.append({
+                        "id": "context_env",
+                        "label": f".{context}.env",
+                        "path": str(context_env_path),
+                        "exists": context_env_path.exists()
+                    })
         except Exception:
             pass
 
@@ -527,6 +569,7 @@ class WebSocketManager:
                 "plugins_count": len(plugins),
                 "libraries_count": len(libs),
                 "config_file": config_file_path,
+                "config_targets": config_targets,
             },
             "components": [self._get_component_info(c) for c in components],
             "plugins": [self._get_component_info(p) for p in plugins],
@@ -733,7 +776,8 @@ class WebSocketManager:
         elif action == "save_config":
             component_name = data.get("name")
             config_values = data.get("config")
-            result = await self._save_component_config(component_name, config_values)
+            target_file = data.get("target_file", "yaml")  # yaml, env, or context_env
+            result = await self._save_component_config(component_name, config_values, target_file)
             await websocket.send(json.dumps(result))
             # Refresh state for all clients after config change
             if result.get("type") == "success":
@@ -951,15 +995,25 @@ class WebSocketManager:
             self,
             component_name: str,
             config_values: Dict[str, Any],
+            target_file: str = "yaml",
             ioc_api=get_container_api(),
             logger=get_logger()
     ) -> dict:
-        """Save configuration for a component to the ioc.yaml file."""
+        """Save configuration for a component to the specified target file.
+
+        Args:
+            component_name: Name of the component to save config for
+            config_values: Dictionary of configuration values to save
+            target_file: Target file type - "yaml", "env", or "context_env"
+        """
         if not component_name:
             return {"type": "error", "error": "Component name required"}
 
         if not config_values:
             return {"type": "error", "error": "Configuration values required"}
+
+        if target_file not in ("yaml", "env", "context_env"):
+            return {"type": "error", "error": f"Invalid target file: {target_file}"}
 
         try:
             # Find the component
@@ -984,20 +1038,20 @@ class WebSocketManager:
             if not prefix:
                 return {"type": "error", "error": f"Configuration model for '{component_name}' has no prefix"}
 
-            # Load existing ioc.yaml
             ioc_config = ioc_api.ioc_config_model
-            config_path = ioc_config.config_path
-            if not config_path or not config_path.exists():
-                return {"type": "error", "error": "IOC configuration file not found"}
+            SECRET_MASK = "**********"
 
-            provided_config = ioc_api.provided_config(config_model)  # Ensure config model is registered
+            # Filter out masked secret values - these should not be saved
+            def filter_masked_secrets(obj):
+                """Recursively filter out masked secret values."""
+                if isinstance(obj, dict):
+                    return {k: filter_masked_secrets(v) for k, v in obj.items()
+                            if v != SECRET_MASK}
+                elif isinstance(obj, list):
+                    return [filter_masked_secrets(v) for v in obj if v != SECRET_MASK]
+                return obj
 
-            # Update provided config instance
-            for key, value in config_values.items():
-                if hasattr(provided_config, key):
-                    setattr(provided_config, key, value)
-
-            # Recursively, check all values, if they are not basic types, convert to strings
+            # Recursively serialize values for JSON/YAML compatibility
             def serialize_values(obj):
                 if isinstance(obj, dict):
                     return {k: serialize_values(v) for k, v in obj.items()}
@@ -1006,7 +1060,6 @@ class WebSocketManager:
                 elif isinstance(obj, Path):
                     return str(obj)
                 elif hasattr(obj, '__str__') and not isinstance(obj, (str, int, float, bool, type(None))):
-                    # For other non-serializable objects, convert to string
                     try:
                         json.dumps(obj)
                         return obj
@@ -1014,22 +1067,105 @@ class WebSocketManager:
                         return str(obj)
                 return obj
 
-            # Read existing YAML file to preserve other sections
-            with open(config_path, 'r', encoding='utf-8') as f:
-                existing_config = yaml.safe_load(f) or {}
+            # Filter and serialize the provided config values
+            filtered_config_values = filter_masked_secrets(config_values)
+            filtered_config_values = serialize_values(filtered_config_values)
 
-            # Update only the specific component's config section (by prefix)
-            component_config_dict = provided_config.model_dump(by_alias=True)
-            component_config_dict = serialize_values(component_config_dict)
-            existing_config[prefix] = component_config_dict
+            if not filtered_config_values:
+                return {"type": "info", "message": "No changes to save (all values were masked secrets)"}
 
-            # Write back the updated config
-            with open(config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(existing_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            if target_file == "yaml":
+                # Save to YAML config file - only update specified fields
+                config_path = ioc_config.config_path
+                if not config_path or not config_path.exists():
+                    return {"type": "error", "error": "IOC configuration file not found"}
 
-            logger.info(f"Saved configuration for '{component_name}' (prefix: {prefix})")
-            return {"type": "success",
-                    "message": f"Configuration saved for '{component_name}'. Restart required for changes to take effect."}
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_config = yaml.safe_load(f) or {}
+
+                # Get existing section or create empty one
+                existing_section = existing_config.get(prefix, {})
+                if not isinstance(existing_section, dict):
+                    existing_section = {}
+
+                # Merge: only update the fields that were provided
+                def deep_merge(base, updates):
+                    """Recursively merge updates into base dict."""
+                    result = base.copy()
+                    for key, value in updates.items():
+                        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                            result[key] = deep_merge(result[key], value)
+                        else:
+                            result[key] = value
+                    return result
+
+                existing_config[prefix] = deep_merge(existing_section, filtered_config_values)
+
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(existing_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+                target_display = str(config_path)
+
+            else:
+                # Save to .env file (env or context_env)
+                config_path = ioc_config.config_path
+                if not config_path:
+                    return {"type": "error", "error": "IOC configuration path not set"}
+
+                config_dir = config_path.parent
+
+                if target_file == "env":
+                    env_path = config_dir / ".env"
+                else:  # context_env
+                    context = ioc_config.context
+                    if not context:
+                        return {"type": "error",
+                                "error": "No context configured. Set 'context' in IOC config to use context-specific .env files."}
+                    env_path = config_dir / f".{context}.env"
+
+                # Read existing .env file
+                existing_env = {}
+                if env_path.exists():
+                    with open(env_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, _, value = line.partition('=')
+                                existing_env[key.strip()] = value.strip()
+
+                # Convert config values to env format (PREFIX_KEY=value)
+                # Only update the fields that were modified
+                prefix_upper = prefix.upper()
+                for key, value in filtered_config_values.items():
+                    env_key = f"{prefix_upper}_{key.upper()}"
+                    if isinstance(value, bool):
+                        existing_env[env_key] = str(value).lower()
+                    elif isinstance(value, (dict, list)):
+                        existing_env[env_key] = json.dumps(value)
+                    else:
+                        existing_env[env_key] = str(value)
+
+                # Write back the .env file
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    for key, value in existing_env.items():
+                        f.write(f"{key}={value}\n")
+
+                target_display = str(env_path)
+
+            # Reconfigure the component to reload config from files
+            # This properly reloads and validates the config (including SecretStr, etc.)
+            try:
+                reconfigure_ioc_app(self._container, components=(component,))
+                logger.info(f"Reconfigured component '{component_name}' with new config values")
+            except Exception as e:
+                logger.warning(f"Could not reconfigure component '{component_name}': {e}. Restart may be required.")
+
+            field_count = len(filtered_config_values)
+            logger.info(f"Saved {field_count} field(s) for '{component_name}' (prefix: {prefix}) to {target_display}")
+            return {
+                "type": "success",
+                "message": f"Saved {field_count} field(s) for '{component_name}' to {target_display}. Restart the component to apply changes."
+            }
 
         except Exception as e:
             logger.error(f"Error saving config for '{component_name}'", exc_info=e)

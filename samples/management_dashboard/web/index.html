@@ -823,6 +823,11 @@
                     <div class="panel-section-title">Configuration</div>
                     <div class="config-form" id="panelConfigForm"></div>
                     <div class="config-actions">
+                        <select id="configTargetFile"
+                                style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:10px 12px;color:#eee;font-size:0.9em;margin-right:8px;">
+                            <option value="yaml">YAML Config</option>
+                            <option value="env">.env</option>
+                        </select>
                         <button class="btn btn-enable" id="saveConfigBtn" onclick="saveConfig()">Save Configuration
                         </button>
                     </div>
@@ -869,6 +874,9 @@
     let currentComponents = [];
     let currentPlugins = [];
     let currentLogs = [];
+    let configTargets = [];
+    let originalConfigValues = {};  // Track original values to detect changes
+    let secretFields = new Set();   // Track which fields are secrets
     let ws = null;
     let reconnectAttempts = 0;
     let selectedComponent = null;
@@ -937,7 +945,9 @@
             case 'full_state':
                 currentComponents = data.components || [];
                 currentPlugins = data.plugins || [];
+                configTargets = (data.state && data.state.config_targets) || [];
                 updateTopPanel();
+                updateConfigTargetDropdown();
                 renderAllSections();
                 // Auto-select app if nothing selected
                 if (!selectedComponent) {
@@ -973,6 +983,13 @@
                 renderLogs();
                 break;
             case 'success':
+                showToast(data.message, 'success');
+                // After successful save, update original values with the saved values
+                // so subsequent saves only track new changes
+                if (data.message && data.message.includes('Saved') && data.message.includes('field')) {
+                    updateOriginalConfigAfterSave();
+                }
+                break;
             case 'error':
             case 'info':
                 showToast(data.message || data.error, data.type);
@@ -1235,9 +1252,16 @@
         configForm.innerHTML = '';
         treeNodeIdCounter = 0;
 
+        // Reset tracking for original values and secrets
+        originalConfigValues = {};
+        secretFields = new Set();
+
         const schema = item.config.schema;
         const values = item.config.values || {};
         const properties = schema.properties || {};
+
+        // Store original values for change detection
+        originalConfigValues = JSON.parse(JSON.stringify(values));
 
         for (const [fieldName, fieldSchema] of Object.entries(properties)) {
             const fieldType = fieldSchema.type || 'string';
@@ -1246,6 +1270,12 @@
             const currentValue = values[fieldName];
             const defaultValue = fieldSchema.default;
             const effectiveValue = currentValue !== undefined ? currentValue : defaultValue;
+
+            // Detect secret fields (pydantic SecretStr, SecretBytes)
+            const isSecret = fieldSchema.format === 'password' || fieldSchema.writeOnly === true;
+            if (isSecret) {
+                secretFields.add(fieldName);
+            }
 
             let effectiveType = fieldType;
             if (typeof effectiveValue === 'object' && effectiveValue !== null) {
@@ -1258,6 +1288,9 @@
             } else {
                 const fieldDiv = document.createElement('div');
                 fieldDiv.className = 'config-field';
+                if (isSecret) {
+                    fieldDiv.classList.add('secret-field');
+                }
 
                 if (fieldType === 'boolean') {
                     const checkboxLabel = document.createElement('label');
@@ -1277,7 +1310,7 @@
                 } else {
                     const label = document.createElement('label');
                     label.htmlFor = `config_${fieldName}`;
-                    label.textContent = fieldTitle;
+                    label.textContent = fieldTitle + (isSecret ? ' 🔒' : '');
                     fieldDiv.appendChild(label);
 
                     if (fieldSchema.enum && Array.isArray(fieldSchema.enum)) {
@@ -1302,10 +1335,16 @@
                         input.name = fieldName;
                         input.dataset.configPath = fieldName;
                         input.dataset.configType = fieldType;
+                        if (isSecret) {
+                            input.dataset.isSecret = 'true';
+                        }
 
                         if (fieldType === 'integer' || fieldType === 'number') {
                             input.type = 'number';
                             if (fieldType === 'number') input.step = 'any';
+                        } else if (isSecret) {
+                            input.type = 'password';
+                            input.placeholder = 'Enter new value to change';
                         } else {
                             input.type = 'text';
                         }
@@ -1385,13 +1424,71 @@
 
         node.appendChild(children);
 
-        // Add "Add Property" row for objects (allows adding new key-value pairs)
+        // Add "Add" row for objects and arrays
         if (type === 'object') {
             const addRow = createAddPropertyRow(node, children, path);
+            node.appendChild(addRow);
+        } else if (type === 'array') {
+            const addRow = createAddArrayItemRow(node, children, path, schema.items || {});
             node.appendChild(addRow);
         }
 
         return node;
+    }
+
+    function createAddArrayItemRow(node, childrenContainer, basePath, itemSchema) {
+        const addRow = document.createElement('div');
+        addRow.className = 'config-tree-add-row';
+
+        const itemType = itemSchema.type || 'string';
+
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'config-tree-type-select';
+        typeSelect.innerHTML = `
+            <option value="string" ${itemType === 'string' ? 'selected' : ''}>string</option>
+            <option value="integer" ${itemType === 'integer' ? 'selected' : ''}>integer</option>
+            <option value="number" ${itemType === 'number' ? 'selected' : ''}>number</option>
+            <option value="boolean" ${itemType === 'boolean' ? 'selected' : ''}>boolean</option>
+        `;
+
+        const valueInput = document.createElement('input');
+        valueInput.type = 'text';
+        valueInput.placeholder = 'New item value';
+        valueInput.style.cssText = 'flex:1;min-width:150px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;color:#eee;font-size:0.85em;';
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'config-tree-btn add';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add item';
+        addBtn.onclick = () => {
+            const selectedType = typeSelect.value;
+            let value = valueInput.value;
+
+            // Convert value based on type
+            if (selectedType === 'integer') {
+                value = parseInt(value, 10) || 0;
+            } else if (selectedType === 'number') {
+                value = parseFloat(value) || 0;
+            } else if (selectedType === 'boolean') {
+                value = value.toLowerCase() === 'true' || value === '1';
+            }
+
+            // Find the next index
+            const existingItems = childrenContainer.querySelectorAll('[data-array-index]');
+            const nextIndex = existingItems.length;
+
+            // Add the array item element
+            addArrayItemElement(childrenContainer, basePath, nextIndex, itemSchema, selectedType, value);
+
+            // Clear input
+            valueInput.value = '';
+        };
+
+        addRow.appendChild(typeSelect);
+        addRow.appendChild(valueInput);
+        addRow.appendChild(addBtn);
+
+        return addRow;
     }
 
     function createAddPropertyRow(node, childrenContainer, basePath) {
@@ -1473,6 +1570,24 @@
 
         if (effectiveType === 'object' || effectiveType === 'array') {
             const nestedNode = renderTreeNode(itemPath, `[${index}]`, effectiveType, itemSchema, value, '', true);
+            nestedNode.dataset.arrayIndex = index;
+
+            // Add delete button to nested node header
+            const header = nestedNode.querySelector('.config-tree-header');
+            if (header) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'config-tree-btn remove';
+                deleteBtn.textContent = '×';
+                deleteBtn.title = 'Remove item';
+                deleteBtn.style.marginLeft = 'auto';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    nestedNode.remove();
+                    reindexArrayItems(container, basePath);
+                };
+                header.appendChild(deleteBtn);
+            }
+
             container.appendChild(nestedNode);
         } else {
             const itemDiv = document.createElement('div');
@@ -1491,8 +1606,48 @@
             valueDiv.appendChild(input);
             itemDiv.appendChild(valueDiv);
 
+            // Add delete button
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'config-tree-actions';
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'config-tree-btn remove';
+            deleteBtn.textContent = '×';
+            deleteBtn.title = 'Remove item';
+            deleteBtn.onclick = () => {
+                itemDiv.remove();
+                reindexArrayItems(container, basePath);
+            };
+            actionsDiv.appendChild(deleteBtn);
+            itemDiv.appendChild(actionsDiv);
+
             container.appendChild(itemDiv);
         }
+    }
+
+    function reindexArrayItems(container, basePath) {
+        // Re-index all array items after deletion
+        const items = container.querySelectorAll(':scope > [data-array-index]');
+        items.forEach((item, newIndex) => {
+            item.dataset.arrayIndex = newIndex;
+
+            // Update the key label
+            const keySpan = item.querySelector('.config-tree-item-key, .config-tree-label');
+            if (keySpan) {
+                keySpan.textContent = `[${newIndex}]`;
+            }
+
+            // Update the input path
+            const input = item.querySelector('[data-config-path]');
+            if (input) {
+                input.dataset.configPath = `${basePath}[${newIndex}]`;
+            }
+
+            // Update nested node path
+            if (item.dataset.treePath) {
+                item.dataset.treePath = `${basePath}[${newIndex}]`;
+            }
+        });
     }
 
     function addObjectPropertyElement(container, basePath, key, keySchema, valueType, value, isFixed) {
@@ -1584,13 +1739,16 @@
         return input;
     }
 
-    function collectConfigValues() {
+    function collectConfigValues(onlyModified = true) {
         const form = document.getElementById('panelConfigForm');
         const values = {};
+        const SECRET_MASK = '**********';
 
+        // Collect values from inputs
         form.querySelectorAll('[data-config-path]').forEach(input => {
             const path = input.dataset.configPath;
             const type = input.dataset.configType;
+            const isSecret = input.dataset.isSecret === 'true';
             let value;
 
             if (input.type === 'checkbox') {
@@ -1605,10 +1763,192 @@
                 value = input.value;
             }
 
-            setNestedValue(values, path, value);
+            // Skip secret fields that still have the masked value
+            if (isSecret && value === SECRET_MASK) {
+                return; // Don't include unchanged secrets
+            }
+
+            // Only include modified fields if onlyModified is true
+            if (onlyModified) {
+                const originalValue = getNestedValue(originalConfigValues, path);
+                // For secrets, if original was masked and new value is different, include it
+                if (isSecret) {
+                    if (value !== SECRET_MASK && value !== '') {
+                        setNestedValue(values, path, value);
+                    }
+                } else if (!deepEqual(value, originalValue)) {
+                    setNestedValue(values, path, value);
+                }
+            } else {
+                // Skip masked secrets even when not in onlyModified mode
+                if (!(isSecret && value === SECRET_MASK)) {
+                    setNestedValue(values, path, value);
+                }
+            }
+        });
+
+        // Handle arrays and objects that might be empty or have modified structure
+        form.querySelectorAll('.config-tree-node[data-tree-type]').forEach(node => {
+            const path = node.dataset.treePath;
+            const type = node.dataset.treeType;
+
+            // Only process top-level nodes (not nested)
+            if (node.classList.contains('nested')) return;
+
+            if (type === 'array') {
+                // Collect all array items
+                const children = node.querySelector('.config-tree-children');
+                const items = children ? children.querySelectorAll(':scope > [data-array-index]') : [];
+                const arrayValues = [];
+
+                items.forEach((item, idx) => {
+                    // Check if this item has a direct input
+                    const input = item.querySelector('[data-config-path]');
+                    if (input) {
+                        const itemType = input.dataset.configType;
+                        let itemValue;
+                        if (input.type === 'checkbox') {
+                            itemValue = input.checked;
+                        } else if (itemType === 'integer') {
+                            itemValue = parseInt(input.value, 10) || 0;
+                        } else if (itemType === 'number') {
+                            itemValue = parseFloat(input.value) || 0;
+                        } else {
+                            itemValue = input.value;
+                        }
+                        arrayValues.push(itemValue);
+                    } else if (item.dataset.treeType) {
+                        // Nested object/array - collect recursively
+                        const nestedValue = collectNestedTreeValue(item);
+                        arrayValues.push(nestedValue);
+                    }
+                });
+
+                // Check if array was modified
+                const originalArray = getNestedValue(originalConfigValues, path);
+                if (!onlyModified || !deepEqual(arrayValues, originalArray)) {
+                    values[path] = arrayValues;
+                }
+            } else if (type === 'object') {
+                // Collect all object properties
+                const children = node.querySelector('.config-tree-children');
+                const items = children ? children.querySelectorAll(':scope > [data-property-key]') : [];
+                const objectValues = {};
+
+                items.forEach(item => {
+                    const key = item.dataset.propertyKey;
+                    const input = item.querySelector('[data-config-path]');
+                    if (input) {
+                        const itemType = input.dataset.configType;
+                        let itemValue;
+                        if (input.type === 'checkbox') {
+                            itemValue = input.checked;
+                        } else if (itemType === 'integer') {
+                            itemValue = parseInt(input.value, 10) || 0;
+                        } else if (itemType === 'number') {
+                            itemValue = parseFloat(input.value) || 0;
+                        } else {
+                            itemValue = input.value;
+                        }
+                        objectValues[key] = itemValue;
+                    } else if (item.dataset.treeType) {
+                        // Nested object/array
+                        objectValues[key] = collectNestedTreeValue(item);
+                    }
+                });
+
+                // Check if object was modified
+                const originalObject = getNestedValue(originalConfigValues, path);
+                if (!onlyModified || !deepEqual(objectValues, originalObject)) {
+                    values[path] = objectValues;
+                }
+            }
         });
 
         return values;
+    }
+
+    function collectNestedTreeValue(node) {
+        const type = node.dataset.treeType;
+        const children = node.querySelector('.config-tree-children');
+
+        if (type === 'array') {
+            const items = children ? children.querySelectorAll(':scope > [data-array-index]') : [];
+            const arrayValues = [];
+
+            items.forEach(item => {
+                const input = item.querySelector('[data-config-path]');
+                if (input) {
+                    const itemType = input.dataset.configType;
+                    let itemValue;
+                    if (input.type === 'checkbox') {
+                        itemValue = input.checked;
+                    } else if (itemType === 'integer') {
+                        itemValue = parseInt(input.value, 10) || 0;
+                    } else if (itemType === 'number') {
+                        itemValue = parseFloat(input.value) || 0;
+                    } else {
+                        itemValue = input.value;
+                    }
+                    arrayValues.push(itemValue);
+                } else if (item.dataset.treeType) {
+                    arrayValues.push(collectNestedTreeValue(item));
+                }
+            });
+
+            return arrayValues;
+        } else if (type === 'object') {
+            const items = children ? children.querySelectorAll(':scope > [data-property-key]') : [];
+            const objectValues = {};
+
+            items.forEach(item => {
+                const key = item.dataset.propertyKey;
+                const input = item.querySelector('[data-config-path]');
+                if (input) {
+                    const itemType = input.dataset.configType;
+                    let itemValue;
+                    if (input.type === 'checkbox') {
+                        itemValue = input.checked;
+                    } else if (itemType === 'integer') {
+                        itemValue = parseInt(input.value, 10) || 0;
+                    } else if (itemType === 'number') {
+                        itemValue = parseFloat(input.value) || 0;
+                    } else {
+                        itemValue = input.value;
+                    }
+                    objectValues[key] = itemValue;
+                } else if (item.dataset.treeType) {
+                    objectValues[key] = collectNestedTreeValue(item);
+                }
+            });
+
+            return objectValues;
+        }
+
+        return null;
+    }
+
+    function getNestedValue(obj, path) {
+        if (!obj) return undefined;
+        const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.');
+        let current = obj;
+        for (const part of parts) {
+            if (current === undefined || current === null) return undefined;
+            current = current[part];
+        }
+        return current;
+    }
+
+    function deepEqual(a, b) {
+        if (a === b) return true;
+        if (a === null || b === null) return false;
+        if (typeof a !== typeof b) return false;
+        if (typeof a !== 'object') return a === b;
+        if (Array.isArray(a) !== Array.isArray(b)) return false;
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) return false;
+        return keysA.every(key => deepEqual(a[key], b[key]));
     }
 
     function setNestedValue(obj, path, value) {
@@ -1630,15 +1970,62 @@
         current[lastPart] = value;
     }
 
+    function updateOriginalConfigAfterSave() {
+        // Update original values with current form values after a successful save
+        // This ensures subsequent saves only track new changes
+        const currentValues = collectConfigValues(false); // Get all values, not just modified
+        for (const [key, value] of Object.entries(currentValues)) {
+            setNestedValue(originalConfigValues, key, value);
+        }
+    }
+
+    function updateConfigTargetDropdown() {
+        const select = document.getElementById('configTargetFile');
+        if (!select) return;
+
+        // Remember current selection
+        const currentValue = select.value;
+
+        // Clear and rebuild options
+        select.innerHTML = '';
+
+        if (configTargets.length === 0) {
+            // Fallback if no targets available
+            select.innerHTML = '<option value="yaml">YAML Config</option><option value="env">.env</option>';
+        } else {
+            configTargets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = target.label + (target.exists ? '' : ' (new)');
+                option.title = target.path;
+                select.appendChild(option);
+            });
+        }
+
+        // Restore selection if still valid
+        if (currentValue && Array.from(select.options).some(o => o.value === currentValue)) {
+            select.value = currentValue;
+        }
+    }
+
     function saveConfig() {
         if (!currentPanelItem) return;
 
         const values = collectConfigValues();
+        const targetFile = document.getElementById('configTargetFile')?.value || 'yaml';
+
+        // Check if any fields were modified
+        if (Object.keys(values).length === 0) {
+            showToast('No changes to save', 'info');
+            return;
+        }
+
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 action: 'save_config',
                 name: currentPanelItem.name,
-                config: values
+                config: values,
+                target_file: targetFile
             }));
         }
     }
