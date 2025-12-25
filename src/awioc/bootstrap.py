@@ -78,10 +78,17 @@ def compile_ioc_app(
 
     app = compile_component(ioc_components_definitions.app)
 
-    plugins = {
-        compile_component(plugin_name)
-        for plugin_name in ioc_components_definitions.plugins
-    }
+    # Compile plugins with error handling - missing plugins are skipped with a warning
+    plugins = set()
+    for plugin_name in ioc_components_definitions.plugins:
+        try:
+            plugin = compile_component(plugin_name)
+            plugins.add(plugin)
+        except FileNotFoundError as e:
+            logger.warning("Plugin not found, skipping: %s", plugin_name)
+        except Exception as e:
+            logger.error("Failed to compile plugin '%s': %s", plugin_name, e)
+
     libraries = {
         id_: compile_component(library_name)
         for id_, library_name in ioc_components_definitions.libraries.items()

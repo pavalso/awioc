@@ -234,11 +234,54 @@
             padding-top: 12px;
             border-top: 1px solid rgba(255,255,255,0.06);
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .upload-dropzone {
+            border: 2px dashed rgba(0, 217, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: rgba(0, 0, 0, 0.15);
+        }
+        .upload-dropzone:hover, .upload-dropzone.dragover {
+            border-color: #00d9ff;
+            background: rgba(0, 217, 255, 0.08);
+        }
+        .upload-dropzone.dragover {
+            transform: scale(1.02);
+        }
+        .upload-dropzone-icon {
+            font-size: 2em;
+            margin-bottom: 8px;
+            opacity: 0.6;
+        }
+        .upload-dropzone-text {
+            color: #888;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+        .upload-dropzone-text strong {
+            color: #00d9ff;
+        }
+        .upload-buttons {
+            display: flex;
             gap: 8px;
             flex-wrap: wrap;
         }
-        .upload-section .btn { font-size: 0.8em; padding: 6px 10px; }
-        .upload-status { color: #888; font-size: 0.8em; width: 100%; }
+        .upload-section .btn { font-size: 0.8em; padding: 6px 10px; flex: 1; min-width: 80px; }
+        .upload-status { color: #888; font-size: 0.8em; }
+        .upload-status.success { color: #00c853; }
+        .upload-status.error { color: #ff5252; }
+        .plugin-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
 
         /* ========== RIGHT PANEL (Tabs) ========== */
         .right-panel {
@@ -749,14 +792,39 @@
             <div class="component-list" id="pluginsSection"></div>
 
             <div class="upload-section">
-                <input accept=".py" id="pluginFile" onchange="uploadPluginFile()" style="display:none" type="file">
+                <input accept=".py" id="pluginFile" multiple onchange="uploadPluginFile()" style="display:none"
+                       type="file">
                 <input id="pluginDir" onchange="uploadPluginDirectory()" style="display:none" type="file"
                        webkitdirectory>
-                <button class="btn btn-enable" onclick="document.getElementById('pluginFile').click()">Upload File
-                </button>
-                <button class="btn btn-secondary" onclick="document.getElementById('pluginDir').click()">Upload Dir
-                </button>
+
+                <div class="upload-dropzone" id="uploadDropzone"
+                     onclick="document.getElementById('pluginFile').click()"
+                     ondragleave="handleDragLeave(event)"
+                     ondragover="handleDragOver(event)"
+                     ondrop="handleDrop(event)">
+                    <div class="upload-dropzone-icon">+</div>
+                    <div class="upload-dropzone-text">
+                        <strong>Drop plugin files here</strong><br>
+                        or click to browse
+                    </div>
+                </div>
+
+                <div class="upload-buttons">
+                    <button class="btn btn-enable" onclick="document.getElementById('pluginFile').click()">File</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('pluginDir').click()">Folder
+                    </button>
+                </div>
+
                 <span class="upload-status" id="uploadStatus"></span>
+
+                <div class="plugin-actions">
+                    <button class="btn btn-secondary" onclick="syncPlugins()"
+                            title="Sync plugins from upload directory">Sync
+                    </button>
+                    <button class="btn btn-secondary" onclick="savePlugins()" title="Save current plugins to ioc.yaml">
+                        Save
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1234,6 +1302,15 @@
                 btn.textContent = 'Enable';
                 btn.onclick = () => enableItem(item.name, item._kind);
                 actions.appendChild(btn);
+            }
+
+            // Add unregister button for plugins (only when inactive)
+            if (item._kind === 'plugin' && !isActive && !isTransitioning) {
+                const unregBtn = document.createElement('button');
+                unregBtn.className = 'btn btn-danger';
+                unregBtn.textContent = 'Unregister';
+                unregBtn.onclick = () => unregisterPlugin(item.name);
+                actions.appendChild(unregBtn);
             }
         }
     }
@@ -2205,6 +2282,203 @@
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
         }, 4000);
+    }
+
+    // Drag and drop handlers
+    function handleDragOver(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dropzone = document.getElementById('uploadDropzone');
+        dropzone.classList.add('dragover');
+    }
+
+    function handleDragLeave(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dropzone = document.getElementById('uploadDropzone');
+        dropzone.classList.remove('dragover');
+    }
+
+    function handleDrop(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dropzone = document.getElementById('uploadDropzone');
+        dropzone.classList.remove('dragover');
+
+        const items = event.dataTransfer.items;
+        const files = event.dataTransfer.files;
+
+        if (items && items.length > 0) {
+            // Check if it's a directory (using webkitGetAsEntry)
+            const firstItem = items[0];
+            if (firstItem.webkitGetAsEntry) {
+                const entry = firstItem.webkitGetAsEntry();
+                if (entry && entry.isDirectory) {
+                    // Handle directory drop
+                    handleDirectoryDrop(entry);
+                    return;
+                }
+            }
+        }
+
+        // Handle file(s) drop
+        if (files && files.length > 0) {
+            handleFilesDrop(files);
+        }
+    }
+
+    function handleFilesDrop(files) {
+        const status = document.getElementById('uploadStatus');
+        const pyFiles = Array.from(files).filter(f => f.name.endsWith('.py'));
+
+        if (pyFiles.length === 0) {
+            status.textContent = 'No .py files found';
+            status.className = 'upload-status error';
+            return;
+        }
+
+        status.textContent = `Uploading ${pyFiles.length} file(s)...`;
+        status.className = 'upload-status';
+
+        let uploaded = 0;
+        pyFiles.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        action: 'upload_plugin',
+                        type: 'file',
+                        filename: file.name,
+                        content: reader.result.split(',')[1]
+                    }));
+                }
+                uploaded++;
+                if (uploaded === pyFiles.length) {
+                    status.textContent = `Uploaded ${uploaded} file(s)`;
+                    status.className = 'upload-status success';
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function handleDirectoryDrop(directoryEntry) {
+        const status = document.getElementById('uploadStatus');
+        status.textContent = 'Reading directory...';
+        status.className = 'upload-status';
+
+        const files = [];
+        const dirName = directoryEntry.name;
+
+        function readEntries(reader, path) {
+            return new Promise((resolve) => {
+                reader.readEntries(async (entries) => {
+                    if (entries.length === 0) {
+                        resolve();
+                        return;
+                    }
+                    for (const entry of entries) {
+                        if (entry.isFile) {
+                            const file = await getFile(entry);
+                            files.push({
+                                path: path + '/' + entry.name,
+                                file: file
+                            });
+                        } else if (entry.isDirectory) {
+                            const newReader = entry.createReader();
+                            await readEntries(newReader, path + '/' + entry.name);
+                        }
+                    }
+                    // Keep reading until no more entries
+                    await readEntries(reader, path);
+                    resolve();
+                });
+            });
+        }
+
+        function getFile(entry) {
+            return new Promise((resolve) => {
+                entry.file(resolve);
+            });
+        }
+
+        const reader = directoryEntry.createReader();
+        readEntries(reader, dirName).then(() => {
+            if (files.length === 0) {
+                status.textContent = 'No files found in directory';
+                status.className = 'upload-status error';
+                return;
+            }
+
+            status.textContent = `Reading ${files.length} files...`;
+            let loaded = 0;
+            const fileData = [];
+
+            files.forEach(({ path, file }) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    fileData.push({
+                        path: path,
+                        content: reader.result.split(',')[1]
+                    });
+                    loaded++;
+                    if (loaded === files.length) {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'upload_plugin',
+                                type: 'directory',
+                                dirname: dirName,
+                                files: fileData
+                            }));
+                        }
+                        status.textContent = `Uploaded directory: ${dirName}`;
+                        status.className = 'upload-status success';
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+    }
+
+    // Unregister plugin
+    function unregisterPlugin(name) {
+        if (!confirm(`Are you sure you want to unregister plugin "${name}"?\n\nThis will remove it from the current session.`)) {
+            return;
+        }
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'unregister_plugin',
+                name: name
+            }));
+        }
+
+        // Clear selection if we just unregistered the selected item
+        if (selectedComponent === name) {
+            selectedComponent = null;
+            document.getElementById('panelTitle').textContent = 'Select a component';
+            document.getElementById('panelVersion').textContent = '';
+            document.getElementById('panelDesc').textContent = 'Select a component from the left panel to view its details.';
+            document.getElementById('panelActions').innerHTML = '';
+        }
+    }
+
+    // Save current plugins to config
+    function savePlugins() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'save_plugins'
+            }));
+        }
+    }
+
+    // Sync plugins from upload directory
+    function syncPlugins() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'sync_plugins'
+            }));
+        }
     }
 
     // Initialize

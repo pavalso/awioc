@@ -13,7 +13,6 @@ import asyncio
 import base64
 import json
 import logging
-import tempfile
 import time
 import warnings
 from collections import deque
@@ -67,6 +66,10 @@ class DashboardConfig(pydantic.BaseModel):
     log_buffer_size: int = pydantic.Field(
         default=500,
         description="Maximum number of log entries to keep in memory for the UI"
+    )
+    plugin_upload_path: str = pydantic.Field(
+        default="plugins",
+        description="Directory path where uploaded plugins will be saved (relative to config file or absolute)"
     )
 
 
@@ -241,9 +244,14 @@ class WebSocketManager:
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
         self._log_buffer: Optional[LogBuffer] = None
+        self._plugin_upload_path: Optional[Path] = None
 
     def set_container(self, container: ContainerInterface):
         self._container = container
+
+    def set_plugin_upload_path(self, path: Path):
+        """Set the plugin upload path for auto-sync."""
+        self._plugin_upload_path = path
 
     def set_main_loop(self, loop: asyncio.AbstractEventLoop):
         """Set the main event loop for scheduling lifecycle operations."""
@@ -783,6 +791,25 @@ class WebSocketManager:
             if result.get("type") == "success":
                 await self.broadcast_state()
 
+        elif action == "unregister_plugin":
+            plugin_name = data.get("name")
+            result = await self._unregister_plugin(plugin_name)
+            await websocket.send(json.dumps(result))
+            # Refresh state for all clients after unregistration
+            if result.get("type") == "success":
+                await self.broadcast_state()
+
+        elif action == "save_plugins":
+            result = await self._save_plugins_to_config()
+            await websocket.send(json.dumps(result))
+
+        elif action == "sync_plugins":
+            result = await self._sync_plugins_from_path()
+            await websocket.send(json.dumps(result))
+            # Refresh state for all clients after sync
+            if result.get("type") in ("success", "info"):
+                await self.broadcast_state()
+
     def _run_in_main_loop(self, coro) -> Any:
         """Run a coroutine in the main event loop and wait for result."""
         if self._main_loop is None:
@@ -865,9 +892,15 @@ class WebSocketManager:
     async def _register_plugin_from_path(
             self,
             plugin_path: str,
+            auto_initialize: bool = False,
             logger=get_logger()
     ) -> dict:
-        """Register a new plugin from a file path."""
+        """Register a new plugin from a file path.
+
+        Args:
+            plugin_path: Path to the plugin file or directory
+            auto_initialize: If True, initialize the plugin after registration (default: False)
+        """
         if not plugin_path:
             return {"type": "error", "error": "Plugin path required"}
 
@@ -885,17 +918,18 @@ class WebSocketManager:
             if existing is not None:
                 return {"type": "info", "message": f"Plugin '{plugin_name}' is already registered"}
 
-            # Register and initialize the plugin in the main event loop
+            # Register the plugin in the main event loop
             # Note: This only registers the plugin in memory, it does NOT modify ioc.yaml
-            async def register_and_init():
+            async def register_only():
                 await register_plugin(self._container, plugin)
                 # Reconfigure wires up dependencies for the new plugin
                 reconfigure_ioc_app(self._container, (plugin,))
-                await initialize_components(plugin)
+                if auto_initialize:
+                    await initialize_components(plugin)
 
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self._run_in_main_loop(register_and_init())
+                lambda: self._run_in_main_loop(register_only())
             )
 
             # Update the log buffer with the new component info
@@ -907,7 +941,11 @@ class WebSocketManager:
                 with self._log_buffer._lock:
                     self._log_buffer._component_info[module_name] = (display_name, comp_type)
 
-            return {"type": "success", "message": f"Plugin '{plugin_name}' registered and initialized successfully"}
+            if auto_initialize:
+                return {"type": "success", "message": f"Plugin '{plugin_name}' registered and initialized successfully"}
+            else:
+                return {"type": "success",
+                        "message": f"Plugin '{plugin_name}' registered successfully (not initialized)"}
         except Exception as e:
             logger.error(f"Error registering plugin from '{plugin_path}'", exc_info=e)
             return {"type": "error", "error": str(e)}
@@ -917,6 +955,8 @@ class WebSocketManager:
             self,
             filename: str,
             content: str,
+            config=get_config(DashboardConfig),
+            ioc_api=get_container_api(),
             logger=get_logger()
     ) -> dict:
         """Handle single file plugin upload."""
@@ -927,21 +967,31 @@ class WebSocketManager:
             # Decode base64 content (sent from browser's FileReader.readAsDataURL)
             raw_bytes = base64.b64decode(content)
 
-            # Try UTF-8 first, fall back to latin-1 (which can decode any byte sequence)
-            try:
-                decoded_content = raw_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                decoded_content = raw_bytes.decode("latin-1")
+            # Determine the upload directory from config
+            upload_path = Path(config.plugin_upload_path)
+            if not upload_path.is_absolute():
+                # Make relative to config file directory
+                ioc_config = ioc_api.ioc_config_model
+                if ioc_config.config_path:
+                    upload_path = ioc_config.config_path.parent / upload_path
+                else:
+                    upload_path = Path.cwd() / upload_path
 
-            # Create a temporary directory for the plugin
-            temp_dir = Path(tempfile.mkdtemp(prefix="plugin_"))
-            plugin_path = temp_dir / filename
+            # Create the directory if it doesn't exist
+            upload_path.mkdir(parents=True, exist_ok=True)
 
-            # Write the file
-            plugin_path.write_text(decoded_content, encoding="utf-8")
+            plugin_path = upload_path / filename
 
-            # Register the plugin
-            return await self._register_plugin_from_path(str(plugin_path))
+            # Check if file already exists
+            if plugin_path.exists():
+                return {"type": "error", "error": f"Plugin file '{filename}' already exists in {upload_path}"}
+
+            # Write the file as bytes to preserve original line endings
+            plugin_path.write_bytes(raw_bytes)
+            logger.info(f"Saved plugin file to {plugin_path}")
+
+            # Register the plugin (without auto-initialization)
+            return await self._register_plugin_from_path(str(plugin_path), auto_initialize=False)
         except Exception as e:
             logger.error(f"Error uploading plugin file '{filename}'", exc_info=e)
             return {"type": "error", "error": str(e)}
@@ -951,6 +1001,8 @@ class WebSocketManager:
             self,
             dirname: str,
             files: List[Dict[str, str]],
+            config=get_config(DashboardConfig),
+            ioc_api=get_container_api(),
             logger=get_logger()
     ) -> dict:
         """Handle directory plugin upload."""
@@ -958,8 +1010,23 @@ class WebSocketManager:
             return {"type": "error", "error": "Directory name and files required"}
 
         try:
-            # Create a temporary directory for the plugin
-            temp_dir = Path(tempfile.mkdtemp(prefix="plugin_"))
+            # Determine the upload directory from config
+            upload_path = Path(config.plugin_upload_path)
+            if not upload_path.is_absolute():
+                # Make relative to config file directory
+                ioc_config = ioc_api.ioc_config_model
+                if ioc_config.config_path:
+                    upload_path = ioc_config.config_path.parent / upload_path
+                else:
+                    upload_path = Path.cwd() / upload_path
+
+            # Create the directory if it doesn't exist
+            upload_path.mkdir(parents=True, exist_ok=True)
+
+            # Check if plugin directory already exists
+            plugin_dir = upload_path / dirname
+            if plugin_dir.exists():
+                return {"type": "error", "error": f"Plugin directory '{dirname}' already exists in {upload_path}"}
 
             # Write all files preserving directory structure
             for file_info in files:
@@ -971,21 +1038,15 @@ class WebSocketManager:
                 # Decode base64 content
                 raw_bytes = base64.b64decode(content_b64)
 
-                # Try UTF-8 first, fall back to latin-1 (which can decode any byte sequence)
-                try:
-                    decoded_content = raw_bytes.decode("utf-8")
-                except UnicodeDecodeError:
-                    decoded_content = raw_bytes.decode("latin-1")
-
-                file_path = temp_dir / relative_path
+                file_path = upload_path / relative_path
                 file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(decoded_content, encoding="utf-8")
+                # Write as bytes to preserve original line endings
+                file_path.write_bytes(raw_bytes)
 
-            # The plugin directory is the first component of the path
-            plugin_dir = temp_dir / dirname
+            logger.info(f"Saved plugin directory to {plugin_dir}")
 
-            # Register the plugin
-            return await self._register_plugin_from_path(str(plugin_dir))
+            # Register the plugin (without auto-initialization)
+            return await self._register_plugin_from_path(str(plugin_dir), auto_initialize=False)
         except Exception as e:
             logger.error(f"Error uploading plugin directory '{dirname}'", exc_info=e)
             return {"type": "error", "error": str(e)}
@@ -1169,6 +1230,219 @@ class WebSocketManager:
 
         except Exception as e:
             logger.error(f"Error saving config for '{component_name}'", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _unregister_plugin(
+            self,
+            plugin_name: str,
+            logger=get_logger()
+    ) -> dict:
+        """Unregister a plugin from the container."""
+        if not plugin_name:
+            return {"type": "error", "error": "Plugin name required"}
+
+        plugin = self._container.provided_plugin(plugin_name)
+        if plugin is None:
+            return {"type": "error", "error": f"Plugin '{plugin_name}' not found"}
+
+        internals = component_internals(plugin)
+
+        # Don't allow unregistering active plugins
+        if internals.is_initialized:
+            return {"type": "error", "error": f"Cannot unregister active plugin '{plugin_name}'. Disable it first."}
+
+        # Check for dependents
+        if internals.required_by:
+            required_names = [r.__metadata__.get("name") for r in internals.required_by]
+            return {
+                "type": "error",
+                "error": f"Cannot unregister plugin '{plugin_name}': required by {required_names}"
+            }
+
+        try:
+            # Remove from container
+            self._container.unregister_plugins(plugin)
+
+            # Remove from log buffer component info
+            if self._log_buffer:
+                module_name = plugin.__name__
+                with self._log_buffer._lock:
+                    self._log_buffer._component_info.pop(module_name, None)
+
+            # Remove from previous states tracking
+            self._previous_states.pop(plugin_name, None)
+
+            logger.info(f"Plugin '{plugin_name}' unregistered successfully")
+            return {"type": "success", "message": f"Plugin '{plugin_name}' unregistered successfully"}
+        except Exception as e:
+            logger.error(f"Error unregistering plugin '{plugin_name}'", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _sync_plugins_from_path(
+            self,
+            logger=get_logger()
+    ) -> dict:
+        """Sync plugins from the configured upload path.
+
+        - Registers any plugins found in the path that aren't already registered
+        - Unregisters any plugins that were loaded from that path but no longer exist
+        """
+        if not self._plugin_upload_path:
+            return {"type": "error", "error": "Plugin upload path not configured"}
+
+        if not self._plugin_upload_path.exists():
+            # Create the directory if it doesn't exist
+            self._plugin_upload_path.mkdir(parents=True, exist_ok=True)
+            return {"type": "info", "message": f"Created plugin directory: {self._plugin_upload_path}"}
+
+        try:
+            # Find all plugin files/directories in the upload path
+            plugin_paths_on_disk: Set[Path] = set()
+
+            for item in self._plugin_upload_path.iterdir():
+                if item.name.startswith('_') or item.name.startswith('.'):
+                    continue  # Skip __pycache__, __init__.py at root level, hidden files
+
+                if item.is_file() and item.suffix == '.py':
+                    # Single file plugin
+                    plugin_paths_on_disk.add(item.resolve())
+                elif item.is_dir() and (item / '__init__.py').exists():
+                    # Directory plugin with __init__.py
+                    plugin_paths_on_disk.add(item.resolve())
+
+            # Get currently registered plugins and their paths
+            registered_plugins = self._container.provided_plugins()
+            registered_paths: Dict[Path, Any] = {}  # path -> plugin module
+
+            for plugin in registered_plugins:
+                plugin_file = getattr(plugin, "__file__", None)
+                if plugin_file:
+                    plugin_path = Path(plugin_file).resolve()
+                    # Check if this plugin is from the upload path
+                    try:
+                        plugin_path.relative_to(self._plugin_upload_path.resolve())
+                        registered_paths[plugin_path] = plugin
+                    except ValueError:
+                        # Plugin is not from the upload path, skip
+                        pass
+
+            registered = 0
+            unregistered = 0
+            errors = []
+
+            # Register new plugins (on disk but not registered)
+            for path in plugin_paths_on_disk:
+                if path not in registered_paths:
+                    logger.info(f"Auto-registering plugin from: {path}")
+                    result = await self._register_plugin_from_path(str(path), auto_initialize=False)
+                    if result.get("type") == "success":
+                        registered += 1
+                    elif result.get("type") == "error":
+                        errors.append(f"{path.name}: {result.get('error')}")
+
+            # Unregister removed plugins (registered but no longer on disk)
+            for path, plugin in registered_paths.items():
+                if path not in plugin_paths_on_disk:
+                    plugin_name = plugin.__metadata__.get("name", "unknown")
+                    internals = component_internals(plugin)
+
+                    # Only unregister if not active
+                    if not internals.is_initialized:
+                        logger.info(f"Auto-unregistering removed plugin: {plugin_name}")
+                        result = await self._unregister_plugin(plugin_name)
+                        if result.get("type") == "success":
+                            unregistered += 1
+                        elif result.get("type") == "error":
+                            errors.append(f"{plugin_name}: {result.get('error')}")
+                    else:
+                        logger.warning(
+                            f"Plugin '{plugin_name}' was removed from disk but is still active. Disable it to unregister.")
+
+            # Build response message
+            parts = []
+            if registered > 0:
+                parts.append(f"registered {registered}")
+            if unregistered > 0:
+                parts.append(f"unregistered {unregistered}")
+            if errors:
+                parts.append(f"{len(errors)} error(s)")
+
+            if not parts:
+                return {"type": "info", "message": "Plugins are in sync"}
+
+            message = f"Sync complete: {', '.join(parts)}"
+            if errors:
+                message += f". Errors: {'; '.join(errors)}"
+                return {"type": "error" if not (registered or unregistered) else "success", "message": message}
+
+            return {"type": "success", "message": message}
+
+        except Exception as e:
+            logger.error("Error syncing plugins from path", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _save_plugins_to_config(
+            self,
+            ioc_api=get_container_api(),
+            logger=get_logger()
+    ) -> dict:
+        """Save the current list of registered plugins to ioc.yaml."""
+        try:
+            ioc_config = ioc_api.ioc_config_model
+            config_path = ioc_config.config_path
+
+            if not config_path or not config_path.exists():
+                return {"type": "error", "error": "IOC configuration file not found"}
+
+            # Read existing config
+            with open(config_path, 'r', encoding='utf-8') as f:
+                existing_config = yaml.safe_load(f) or {}
+
+            # Get current plugins from container
+            plugins = self._container.provided_plugins()
+
+            # Build list of plugin paths (relative to config directory if possible)
+            config_dir = config_path.parent
+            plugin_paths = []
+
+            for plugin in plugins:
+                # Get the plugin's file path from its __file__ attribute
+                plugin_file = getattr(plugin, "__file__", None)
+
+                if plugin_file:
+                    plugin_path = Path(plugin_file)
+                    # Try to make path relative to config directory
+                    try:
+                        relative_path = plugin_path.relative_to(config_dir)
+                        plugin_paths.append(str(relative_path))
+                    except ValueError:
+                        # Path is not relative to config dir, use absolute
+                        plugin_paths.append(str(plugin_path))
+                else:
+                    # Fallback: use plugin name
+                    plugin_name = plugin.__metadata__.get("name", "unknown")
+                    logger.warning(f"Plugin '{plugin_name}' has no path, skipping in save")
+
+            # Update the components.plugins section
+            if "components" not in existing_config:
+                existing_config["components"] = {}
+
+            existing_config["components"]["plugins"] = plugin_paths
+
+            # Write back to config file
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(existing_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+            logger.info(f"Saved {len(plugin_paths)} plugin(s) to {config_path}")
+            return {
+                "type": "success",
+                "message": f"Saved {len(plugin_paths)} plugin(s) to {config_path.name}"
+            }
+        except Exception as e:
+            logger.error("Error saving plugins to config", exc_info=e)
             return {"type": "error", "error": str(e)}
 
 
@@ -1491,6 +1765,26 @@ class ManagementDashboardApp:
         )
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
+
+        # Set up plugin upload path for auto-sync
+        upload_path = Path(config.plugin_upload_path)
+        if not upload_path.is_absolute():
+            # Make relative to config file directory
+            ioc_config = container.ioc_config_model
+            if ioc_config.config_path:
+                upload_path = ioc_config.config_path.parent / upload_path
+            else:
+                upload_path = Path.cwd() / upload_path
+        ws_manager.set_plugin_upload_path(upload_path)
+        logger.info(f"Plugin upload path: {upload_path}")
+
+        # Auto-sync plugins from the upload path
+        logger.info("Syncing plugins from upload path...")
+        sync_result = await ws_manager._sync_plugins_from_path()
+        if sync_result.get("type") == "success":
+            logger.info(sync_result.get("message"))
+        elif sync_result.get("type") == "error":
+            logger.warning(f"Plugin sync issue: {sync_result.get('message') or sync_result.get('error')}")
 
         # Start WebSocket server with state monitoring
         logger.info(f"Starting WebSocket server on {config.host}:{config.ws_port}")
