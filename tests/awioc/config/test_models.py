@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from src.awioc.config.models import IOCComponentsDefinition, IOCBaseConfig
 
 
@@ -78,3 +79,34 @@ class TestIOCBaseConfig:
         from src.awioc.config.base import Settings
         config = IOCBaseConfig()
         assert isinstance(config, Settings)
+
+    def test_add_sources_at_specific_index(self):
+        """Test add_sources with specific index."""
+        from src.awioc.config.models import _sources
+
+        # Clear any existing sources first
+        _sources.clear()
+
+        def source1(x):
+            return None
+
+        def source2(x):
+            return None
+
+        def source3(x):
+            return None
+
+        # Add source1 at end
+        IOCBaseConfig.add_sources(source1)
+        # Add source2 at end
+        IOCBaseConfig.add_sources(source2)
+        # Add source3 at index 0
+        IOCBaseConfig.add_sources(source3, index=0)
+
+        # source3 should be first
+        assert _sources[0] is source3
+        assert source1 in _sources
+        assert source2 in _sources
+
+        # Clean up
+        _sources.clear()

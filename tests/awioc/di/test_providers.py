@@ -1,7 +1,7 @@
-import pytest
-from unittest.mock import MagicMock, patch, Mock
-import pydantic
+from unittest.mock import patch, Mock
 
+import pydantic
+import pytest
 from dependency_injector.wiring import Provide
 
 from src.awioc.di import providers as providers_module
@@ -946,3 +946,59 @@ class TestGetLibraryEdgeCases:
 
         # The dependency (core_lib) should have its internals initialized
         assert "_internals" in core_lib.__metadata__
+
+
+class TestGetPluginFunction:
+    """Tests for get_plugin function."""
+
+    def test_get_plugin_exists(self):
+        """Test get_plugin function exists."""
+        from src.awioc.di.providers import get_plugin
+        assert callable(get_plugin)
+
+    def test_get_plugin_returns_provide_marker(self):
+        """Test get_plugin returns a Provide marker."""
+        from src.awioc.di.providers import get_plugin
+        result = get_plugin("some_plugin")
+        assert isinstance(result, Provide)
+
+    def test_get_plugin_with_different_names(self):
+        """Test get_plugin with different plugin names."""
+        from src.awioc.di.providers import get_plugin
+        result1 = get_plugin("plugin_a")
+        result2 = get_plugin("plugin_b")
+        assert isinstance(result1, Provide)
+        assert isinstance(result2, Provide)
+
+
+class TestGetComponentFunction:
+    """Tests for get_component function."""
+
+    def test_get_component_exists(self):
+        """Test get_component function exists."""
+        from src.awioc.di.providers import get_component
+        assert callable(get_component)
+
+    def test_get_component_with_name_returns_provide_marker(self):
+        """Test get_component with name returns a Provide marker."""
+        from src.awioc.di.providers import get_component
+        result = get_component("some_component")
+        assert isinstance(result, Provide)
+
+    def test_get_component_without_name_returns_provide_marker(self):
+        """Test get_component without name returns a Provide marker."""
+        from src.awioc.di.providers import get_component
+        # When called without args, it inspects the calling module
+        result = get_component()
+        assert isinstance(result, Provide)
+
+    def test_get_component_no_module_raises(self):
+        """Test get_component raises when module cannot be determined."""
+        from src.awioc.di.providers import get_component
+        with patch('src.awioc.di.providers.inspect') as mock_inspect:
+            mock_frame = Mock()
+            mock_inspect.stack.return_value = [None, (mock_frame,)]
+            mock_inspect.getmodule.return_value = None
+
+            with pytest.raises(RuntimeError, match="Cannot determine calling component"):
+                get_component()

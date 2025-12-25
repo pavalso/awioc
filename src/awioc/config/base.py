@@ -22,7 +22,7 @@ class Settings(settings.BaseSettings):
     )
 
     @cached(cache={}, key=lambda _, type_: type_)
-    def get_config(self, config_type: type[_P_type]) -> _P_type:
+    def get_config(self, config_type: type[_P_type]) -> _P_type:  # TODO: add test coverage for loop branch
         for name, model in _CONFIGURATIONS.items():
             if model == config_type:
                 # Attribute name is the class name, not the prefix

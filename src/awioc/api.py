@@ -12,6 +12,11 @@ from .bootstrap import (
     compile_ioc_app,
     reconfigure_ioc_app
 )
+from .components.events import (
+    ComponentEvent,
+    on_event,
+    clear_handlers as clear_event_handlers,
+)
 from .components.lifecycle import (
     initialize_components,
     shutdown_components,
@@ -81,6 +86,10 @@ __all__ = [
     "wait_for_components",
     "register_plugin",
     "unregister_plugin",
+    # Events
+    "ComponentEvent",
+    "on_event",
+    "clear_event_handlers",
     # DI
     "get_library",
     "get_config",

@@ -16,6 +16,10 @@ from .api import (
     wait_for_components,
     register_plugin,
     unregister_plugin,
+    # Events
+    ComponentEvent,
+    on_event,
+    clear_event_handlers,
     # DI Providers
     get_library,
     get_config,
@@ -68,6 +72,10 @@ __all__ = [
     "wait_for_components",
     "register_plugin",
     "unregister_plugin",
+    # Events
+    "ComponentEvent",
+    "on_event",
+    "clear_event_handlers",
     # DI Providers
     "get_library",
     "get_config",

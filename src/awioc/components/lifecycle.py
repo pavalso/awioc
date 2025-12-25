@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from .events import emit, ComponentEvent
 from .metadata import RegistrationInfo
 from .protocols import Component, PluginComponent
 from .registry import component_requires, component_internals, component_str, component_initialized, clean_module_name
@@ -43,6 +44,9 @@ async def initialize_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
+
+        await emit(comp, ComponentEvent.BEFORE_INITIALIZE)
+
         if hasattr(comp, "initialize") and comp.initialize is not None:
             logger.debug("Initializing component: %s v%s",
                          comp.__metadata__['name'],
@@ -64,6 +68,8 @@ async def initialize_components(
         logger.debug("Component initialized: %s v%s",
                      comp.__metadata__['name'],
                      comp.__metadata__['version'])
+
+        await emit(comp, ComponentEvent.AFTER_INITIALIZE)
 
     _ret = await asyncio.gather(
         *map(__initialize, components),
@@ -114,6 +120,9 @@ async def shutdown_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
+
+        await emit(comp, ComponentEvent.BEFORE_SHUTDOWN)
+
         if hasattr(comp, "shutdown") and comp.shutdown is not None:
             logger.debug("Shutting down component: %s v%s",
                          comp.__metadata__['name'],
@@ -132,6 +141,8 @@ async def shutdown_components(
                      comp.__metadata__['name'],
                      comp.__metadata__['version'])
 
+        await emit(comp, ComponentEvent.AFTER_SHUTDOWN)
+
     _ret = await asyncio.gather(
         *map(__shutdown, components),
         return_exceptions=return_exceptions
@@ -142,7 +153,7 @@ async def shutdown_components(
     if return_exceptions:
         return _exceptions
 
-    if _exceptions:
+    if _exceptions:  # TODO: add test coverage
         raise ExceptionGroup(
             "One or more errors occurred during component shutdown.",
             _exceptions
@@ -164,7 +175,7 @@ def _find_caller_frame() -> inspect.FrameInfo:
             return frame
 
     # Fallback to immediate caller if nothing found
-    return inspect.stack()[1]
+    return inspect.stack()[1]  # TODO: add test coverage
 
 
 async def register_plugin(

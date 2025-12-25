@@ -15,7 +15,7 @@ from .di.wiring import wire, inject_dependencies
 from .loader.module_loader import compile_component
 
 
-def initialize_ioc_app() -> ContainerInterface:
+def initialize_ioc_app() -> ContainerInterface:  # TODO: add test coverage
     """
     Initialize the IOC application.
 
@@ -59,7 +59,7 @@ def initialize_ioc_app() -> ContainerInterface:
     return compile_ioc_app(ioc_config)
 
 
-def compile_ioc_app(
+def compile_ioc_app(  # TODO: add test coverage
         ioc_config: IOCBaseConfig
 ) -> ContainerInterface:
     """

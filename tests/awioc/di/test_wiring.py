@@ -1,12 +1,12 @@
-import pytest
 from types import ModuleType
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pydantic
+import pytest
 
-from src.awioc.di.wiring import wire, inject_dependencies
+from src.awioc.config.registry import _CONFIGURATIONS, clear_configurations
 from src.awioc.container import AppContainer, ContainerInterface
-from src.awioc.config.registry import _CONFIGURATIONS, register_configuration, clear_configurations
+from src.awioc.di.wiring import wire, inject_dependencies
 
 
 class TestInjectDependencies:
@@ -98,6 +98,37 @@ class TestInjectDependencies:
 
         # Should not raise
         inject_dependencies(container_interface, components=[EmptyConfigComponent()])
+
+    def test_inject_dependencies_uses_all_components_when_none(self, container_interface):
+        """Test inject_dependencies uses all container components when components is None."""
+        clear_configurations()
+
+        class TestConfig(pydantic.BaseModel):
+            value: str = "test"
+
+        class AppComponent:
+            __name__ = "app"
+            __module__ = "test"
+            __package__ = None
+            __metadata__ = {
+                "name": "test_app",
+                "version": "1.0.0",
+                "requires": set(),
+                "config": {TestConfig}
+            }
+
+            async def initialize(self):
+                pass
+
+            async def shutdown(self):
+                pass
+
+        container_interface.set_app(AppComponent())
+
+        # Call without specifying components - should use container.components
+        inject_dependencies(container_interface, components=None)
+
+        assert "test_app" in _CONFIGURATIONS
 
 
 class TestWire:

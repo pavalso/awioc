@@ -32,7 +32,7 @@ def get_library(type_: Union[type[_Lib_type], str]) -> _Lib_type:
     return Provide["api", provided().provided_lib.call(type_)]
 
 
-def get_plugin(type_: str) -> Optional[_Component_type]:
+def get_plugin(type_: str) -> Optional[_Component_type]:  # TODO: add test coverage
     return Provide["api", provided().provided_plugin.call(type_)]
 
 
@@ -46,7 +46,7 @@ def get_component(name: str) -> Optional[_Component_type]:  # pragma: no cover
     ...
 
 
-def get_component(name: Optional[str] = None) -> Optional[_Component_type]:
+def get_component(name: Optional[str] = None) -> Optional[_Component_type]:  # TODO: add test coverage
     if name is None:
         calling_frame = inspect.stack()[1]
         mod = inspect.getmodule(calling_frame[0])

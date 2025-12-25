@@ -1,5 +1,5 @@
-import pytest
 import pydantic
+import pytest
 
 from src.awioc.config.registry import (
     _CONFIGURATIONS,
@@ -81,3 +81,60 @@ class TestConfigurationRegistry:
 
         # Should use the test module name as prefix
         assert any("test" in key for key in _CONFIGURATIONS.keys())
+
+
+class TestClearConfigurationsSpecific:
+    """Tests for clear_configurations with specific prefixes."""
+
+    def test_clear_specific_prefix(self):
+        """Test clearing a specific configuration prefix."""
+
+        @register_configuration(prefix="specific_a")
+        class SpecificA(pydantic.BaseModel):
+            pass
+
+        @register_configuration(prefix="specific_b")
+        class SpecificB(pydantic.BaseModel):
+            pass
+
+        assert "specific_a" in _CONFIGURATIONS
+        assert "specific_b" in _CONFIGURATIONS
+
+        # Clear only specific_a
+        clear_configurations(prefixes=["specific_a"])
+
+        assert "specific_a" not in _CONFIGURATIONS
+        assert "specific_b" in _CONFIGURATIONS
+
+        # Cleanup
+        clear_configurations()
+
+    def test_clear_multiple_specific_prefixes(self):
+        """Test clearing multiple specific prefixes."""
+
+        @register_configuration(prefix="multi_a")
+        class MultiA(pydantic.BaseModel):
+            pass
+
+        @register_configuration(prefix="multi_b")
+        class MultiB(pydantic.BaseModel):
+            pass
+
+        @register_configuration(prefix="multi_c")
+        class MultiC(pydantic.BaseModel):
+            pass
+
+        # Clear a and b but not c
+        clear_configurations(prefixes=["multi_a", "multi_b"])
+
+        assert "multi_a" not in _CONFIGURATIONS
+        assert "multi_b" not in _CONFIGURATIONS
+        assert "multi_c" in _CONFIGURATIONS
+
+        # Cleanup
+        clear_configurations()
+
+    def test_clear_nonexistent_prefix(self):
+        """Test clearing a prefix that doesn't exist doesn't raise."""
+        # Should not raise
+        clear_configurations(prefixes=["nonexistent_prefix"])

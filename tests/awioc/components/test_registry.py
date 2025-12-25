@@ -1,12 +1,16 @@
+from datetime import datetime
+
 import pytest
 
+from src.awioc.components.metadata import Internals, RegistrationInfo
 from src.awioc.components.registry import (
     as_component,
     component_requires,
     component_internals,
     component_str,
+    component_registration,
+    clean_module_name,
 )
-from src.awioc.components.metadata import Internals
 
 
 class MockComponent:
@@ -238,3 +242,89 @@ class TestComponentStr:
 
         result = component_str(SemVer())
         assert result == "semver v10.20.30"
+
+
+class TestComponentRegistration:
+    """Tests for component_registration function."""
+
+    def test_returns_registration_info(self):
+        """Test component_registration returns RegistrationInfo."""
+        reg_info = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime.now(),
+            file="test.py",
+            line=10
+        )
+
+        class WithRegistration:
+            __metadata__ = {
+                "name": "test",
+                "_internals": Internals(registration=reg_info)
+            }
+
+        result = component_registration(WithRegistration())
+        assert result is reg_info
+
+    def test_returns_none_without_internals(self):
+        """Test component_registration returns None when no internals."""
+
+        class NoInternals:
+            __metadata__ = {"name": "test"}
+
+        result = component_registration(NoInternals())
+        assert result is None
+
+    def test_returns_none_with_none_internals(self):
+        """Test component_registration returns None when internals is None."""
+
+        class NoneInternals:
+            __metadata__ = {"name": "test", "_internals": None}
+
+        result = component_registration(NoneInternals())
+        assert result is None
+
+    def test_returns_none_without_registration(self):
+        """Test component_registration returns None when no registration."""
+
+        class NoRegistration:
+            __metadata__ = {
+                "name": "test",
+                "_internals": Internals()
+            }
+
+        result = component_registration(NoRegistration())
+        assert result is None
+
+
+class TestCleanModuleName:
+    """Tests for clean_module_name function."""
+
+    def test_removes_init(self):
+        """Test clean_module_name removes __init__."""
+        result = clean_module_name("__init__.dashboard")
+        assert result == "dashboard"
+
+    def test_removes_main(self):
+        """Test clean_module_name removes __main__."""
+        result = clean_module_name("__main__.app")
+        assert result == "app"
+
+    def test_removes_both(self):
+        """Test clean_module_name removes both __init__ and __main__."""
+        result = clean_module_name("__init__.__main__.module")
+        assert result == "module"
+
+    def test_preserves_normal_names(self):
+        """Test clean_module_name preserves normal module names."""
+        result = clean_module_name("my.package.module")
+        assert result == "my.package.module"
+
+    def test_empty_string_returns_unknown(self):
+        """Test clean_module_name returns 'unknown' for empty string."""
+        result = clean_module_name("")
+        assert result == "unknown"
+
+    def test_only_init_returns_original(self):
+        """Test clean_module_name with only __init__ returns original."""
+        result = clean_module_name("__init__")
+        assert result == "__init__"

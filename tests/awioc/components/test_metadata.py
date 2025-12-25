@@ -1,10 +1,11 @@
-import pytest
+from datetime import datetime
 
 from src.awioc.components.metadata import (
     ComponentTypes,
     Internals,
     ComponentMetadata,
     AppMetadata,
+    RegistrationInfo,
 )
 
 
@@ -145,3 +146,52 @@ class TestAppMetadata:
         assert "version" in metadata
         assert "description" in metadata
         assert "base_config" in metadata
+
+
+class TestRegistrationInfo:
+    """Tests for RegistrationInfo dataclass."""
+
+    def test_registration_info_str_minimal(self):
+        """Test __str__ with minimal fields."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0)
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "2024-01-15" in result
+
+    def test_registration_info_str_with_file(self):
+        """Test __str__ with file but no line number."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0),
+            file="/path/to/file.py"
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "from /path/to/file.py" in result
+
+    def test_registration_info_str_with_file_and_line(self):
+        """Test __str__ with file and line number."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0),
+            file="/path/to/file.py",
+            line=42
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "from /path/to/file.py:42" in result
+
+    def test_registration_info_str_format(self):
+        """Test __str__ returns properly formatted string."""
+        reg = RegistrationInfo(
+            registered_by="my_component",
+            registered_at=datetime(2024, 6, 20, 14, 0, 0),
+            file="component.py",
+            line=100
+        )
+        result = str(reg)
+        assert result.startswith("RegistrationInfo(")
+        assert result.endswith(")")

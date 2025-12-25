@@ -90,14 +90,14 @@ class ContainerInterface:
         return set(lib() for lib in self._libs_map.values())
 
     @overload
-    def provided_lib(self, type_: type[_Lib_type]) -> _Lib_type:
+    def provided_lib(self, type_: type[_Lib_type]) -> _Lib_type:  # pragma: no cover
         ...
 
     @overload
-    def provided_lib(self, type_: str) -> _Lib_type:
+    def provided_lib(self, type_: str) -> _Lib_type:  # pragma: no cover
         ...
 
-    def provided_lib(self, type_: Union[type[_Lib_type], str]) -> _Lib_type:
+    def provided_lib(self, type_: Union[type[_Lib_type], str]) -> _Lib_type:  # TODO: add test coverage
         if isinstance(type_, str):
             return self._libs_map[type_]()
         return self._libs_map[type_.__qualname__]()
@@ -125,21 +125,21 @@ class ContainerInterface:
         return set(plugin() for plugin in self._plugins_map.values())
 
     @overload
-    def provided_plugin(self, type_: type[_Plugin_type]) -> Optional[_Plugin_type]:
+    def provided_plugin(self, type_: type[_Plugin_type]) -> Optional[_Plugin_type]:  # pragma: no cover
         ...
 
     @overload
-    def provided_plugin(self, type_: str) -> Optional[_Plugin_type]:
+    def provided_plugin(self, type_: str) -> Optional[_Plugin_type]:  # pragma: no cover
         ...
 
-    def provided_plugin(self, type_: Union[_Plugin_type, str]) -> Optional[_Plugin_type]:
+    def provided_plugin(self, type_: Union[_Plugin_type, str]) -> Optional[_Plugin_type]:  # TODO: add test coverage
         if isinstance(type_, str):
             provider = self._plugins_map.get(type_)
         else:
-            provider = self._plugins_map.get(type_.__metadata__["name"])
+            provider = self._plugins_map.get(type_.__metadata__["name"])  # TODO: add test coverage
         return provider() if provider is not None else None
 
-    def provided_component(self, name: str) -> Optional[Component]:
+    def provided_component(self, name: str) -> Optional[Component]:  # TODO: add test coverage
         """Get a component by its registered name/id."""
         provider = self._container.components().get(name)
         return provider() if provider is not None else None
@@ -184,11 +184,12 @@ class ContainerInterface:
     def __deinit_component(cls, component: Component):
         assert hasattr(component, "__metadata__")
 
-        if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
+        if "_internals" not in component.__metadata__ or component.__metadata__[
+            "_internals"] is None:  # TODO: add test coverage
             return
 
         for req in component_requires(component):
-            if not component_initialized(req):
+            if not component_initialized(req):  # TODO: add test coverage
                 continue
             req.__metadata__["_internals"].required_by.discard(component)
 
