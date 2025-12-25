@@ -44,10 +44,12 @@ from .api import (
     ComponentMetadata,
     AppMetadata,
     ComponentTypes,
+    RegistrationInfo,
     as_component,
     component_requires,
     component_internals,
     component_str,
+    component_registration,
     # Loader
     compile_component,
     # Logging
@@ -93,10 +95,12 @@ __all__ = [
     "ComponentMetadata",
     "AppMetadata",
     "ComponentTypes",
+    "RegistrationInfo",
     "as_component",
     "component_requires",
     "component_internals",
     "component_str",
+    "component_registration",
     # Loader
     "compile_component",
     # Logging

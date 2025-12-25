@@ -887,6 +887,24 @@
                     </div>
                 </div>
 
+                <div class="panel-section" id="panelRegistrationSection">
+                    <div class="panel-section-title">Registration</div>
+                    <div class="panel-meta-grid">
+                        <div class="panel-meta-item">
+                            <span class="label">Registered by</span>
+                            <span class="value" id="panelRegisteredBy">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Registered at</span>
+                            <span class="value" id="panelRegisteredAt">-</span>
+                        </div>
+                        <div class="panel-meta-item" id="panelRegistrationFileItem" style="display:none;">
+                            <span class="label">Source</span>
+                            <span class="value" id="panelRegistrationFile">-</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="panel-section" id="panelConfigSection" style="display:none;">
                     <div class="panel-section-title">Configuration</div>
                     <div class="config-form" id="panelConfigForm"></div>
@@ -1269,6 +1287,36 @@
             depsHtml = '<span style="color:#666;font-size:0.9em;">No dependencies</span>';
         }
         depsContainer.innerHTML = depsHtml;
+
+        // Registration info
+        const registration = item.registration;
+        const registrationSection = document.getElementById('panelRegistrationSection');
+        if (registration) {
+            registrationSection.style.display = 'block';
+            document.getElementById('panelRegisteredBy').textContent = registration.registered_by || '-';
+
+            // Format the timestamp nicely
+            if (registration.registered_at) {
+                const date = new Date(registration.registered_at);
+                document.getElementById('panelRegisteredAt').textContent = date.toLocaleString();
+            } else {
+                document.getElementById('panelRegisteredAt').textContent = '-';
+            }
+
+            // Show source file if available
+            const fileItem = document.getElementById('panelRegistrationFileItem');
+            if (registration.file) {
+                fileItem.style.display = 'block';
+                const fileName = registration.file.split(/[/\\]/).pop();
+                const lineInfo = registration.line ? `:${registration.line}` : '';
+                document.getElementById('panelRegistrationFile').textContent = fileName + lineInfo;
+                document.getElementById('panelRegistrationFile').title = registration.file + lineInfo;
+            } else {
+                fileItem.style.display = 'none';
+            }
+        } else {
+            registrationSection.style.display = 'none';
+        }
 
         // Config
         renderConfigForm(item);

@@ -1,7 +1,7 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
-from .metadata import Internals
+from .metadata import Internals, RegistrationInfo
 from .protocols import Component
 
 logger = logging.getLogger(__name__)
@@ -84,3 +84,19 @@ def component_initialized(component: Component) -> bool:
     if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
         return False
     return component.__metadata__["_internals"].is_initialized
+
+
+def component_registration(component: Component) -> Optional[RegistrationInfo]:
+    """
+    Get the registration information of a component.
+
+    Returns information about who/what registered the component,
+    including the source type, registrar identifier, and location.
+
+    :param component: The component to analyze.
+    :return: The registration info, or None if not available.
+    """
+    assert hasattr(component, "__metadata__")
+    if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
+        return None
+    return component.__metadata__["_internals"].registration

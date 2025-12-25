@@ -36,6 +36,7 @@ from awioc import (
     inject,
     ContainerInterface,
     component_internals,
+    component_registration,
     initialize_components,
     shutdown_components,
     register_plugin, reconfigure_ioc_app,
@@ -318,6 +319,17 @@ class WebSocketManager:
             for req in requires
         ]
 
+        # Get registration info
+        registration = component_registration(component)
+        registration_info = None
+        if registration:
+            registration_info = {
+                "registered_by": registration.registered_by,
+                "registered_at": registration.registered_at.isoformat(),
+                "file": registration.file,
+                "line": registration.line,
+            }
+
         return {
             "name": metadata.get("name", "unknown"),
             "version": metadata.get("version", "unknown"),
@@ -334,6 +346,7 @@ class WebSocketManager:
                 for req in internals.required_by
             ],
             "config": config_info,
+            "registration": registration_info,
             # Internal data
             "internals": {
                 "module": getattr(component, "__name__", "unknown"),
@@ -1754,8 +1767,7 @@ class ManagementDashboardApp:
         self._log_handler.setLevel(logging.DEBUG)
 
         # Attach handler to root logger to capture all logs
-        root_logger = logging.getLogger()
-        root_logger.addHandler(self._log_handler)
+        logger.parent.addHandler(self._log_handler)
 
         # Start HTTP server
         logger.info(f"Starting Management Dashboard on {config.host}:{config.port}")

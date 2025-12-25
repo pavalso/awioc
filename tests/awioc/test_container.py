@@ -1,9 +1,10 @@
 import logging
+from datetime import datetime
 
 import pytest
 from dependency_injector import providers
 
-from src.awioc.components.metadata import Internals, ComponentTypes
+from src.awioc.components.metadata import Internals, ComponentTypes, RegistrationInfo
 from src.awioc.config.base import Settings
 from src.awioc.config.models import IOCBaseConfig
 from src.awioc.container import AppContainer, ContainerInterface
@@ -284,10 +285,12 @@ class TestContainerInterfacePrivateMethods:
             }
 
         comp = Component()
-        interface._ContainerInterface__init_component(comp)
+        registration = RegistrationInfo(registered_by="test", registered_at=datetime.now())
+        interface._ContainerInterface__init_component(comp, registration)
 
         assert "_internals" in comp.__metadata__
         assert isinstance(comp.__metadata__["_internals"], Internals)
+        assert comp.__metadata__["_internals"].registration == registration
 
     def test_init_component_with_requirements(self, interface):
         """Test __init_component initializes requirements."""
@@ -307,7 +310,8 @@ class TestContainerInterfacePrivateMethods:
             }
         })()
 
-        interface._ContainerInterface__init_component(comp)
+        registration = RegistrationInfo(registered_by="test", registered_at=datetime.now())
+        interface._ContainerInterface__init_component(comp, registration)
 
         assert "_internals" in dep.__metadata__
         assert comp in dep.__metadata__["_internals"].required_by

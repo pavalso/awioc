@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, TypedDict, Optional, Union
 
@@ -17,6 +18,23 @@ class ComponentTypes(Enum):
 
 
 @dataclass
+class RegistrationInfo:
+    """Information about who/what registered a component."""
+    registered_by: str  # Module/caller that registered the component
+    registered_at: datetime  # Timestamp when registration occurred
+    file: Optional[str] = None  # File path where registration occurred
+    line: Optional[int] = None  # Line number where registration occurred
+
+    def __str__(self) -> str:
+        parts = [f"by '{self.registered_by}'"]
+        parts.append(f"at {self.registered_at.isoformat()}")
+        if self.file:
+            location = f"{self.file}:{self.line}" if self.line else self.file
+            parts.append(f"from {location}")
+        return f"RegistrationInfo({', '.join(parts)})"
+
+
+@dataclass
 class Internals:
     required_by: set["Component"] = field(default_factory=set)
     initialized_by: set["Component"] = field(default_factory=set)
@@ -25,6 +43,7 @@ class Internals:
     is_shutting_down: bool = False
     ioc_config: Optional[type["Settings"]] = None
     type: ComponentTypes = ComponentTypes.COMPONENT
+    registration: Optional[RegistrationInfo] = None
 
 
 class ComponentMetadata(TypedDict):

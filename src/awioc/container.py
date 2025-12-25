@@ -1,11 +1,13 @@
+import inspect
 import logging
+from datetime import datetime
 from logging import Logger
 from typing import TypeVar, Optional, overload, Union
 
 import pydantic
 from dependency_injector import containers, providers
 
-from .components.metadata import ComponentTypes, Internals
+from .components.metadata import ComponentTypes, Internals, RegistrationInfo
 from .components.protocols import (
     Component,
     AppComponent,
@@ -139,17 +141,34 @@ class ContainerInterface:
     def provided_logger(self) -> Logger:
         return self._container.logger()
 
+    @staticmethod
+    def __capture_registration_info(stack_level: int = 2) -> RegistrationInfo:
+        """Capture registration info from the call stack."""
+        frame = inspect.stack()[stack_level]
+        return RegistrationInfo(
+            registered_by=frame.frame.f_globals.get("__name__", "unknown"),
+            registered_at=datetime.now(),
+            file=frame.filename,
+            line=frame.lineno
+        )
+
     @classmethod
-    def __init_component(cls, component: Component) -> Internals:
+    def __init_component(
+            cls,
+            component: Component,
+            registration: RegistrationInfo
+    ) -> Internals:
         assert hasattr(component, "__metadata__")
         assert not component_initialized(component)
 
         _internals = Internals()
+        _internals.registration = registration
         component.__metadata__["_internals"] = _internals
 
         for req in component_requires(component):
             if not component_initialized(req):
-                cls.__init_component(req)
+                # Dependencies inherit registration from the parent component
+                cls.__init_component(req, registration)
             req.__metadata__["_internals"].required_by.add(component)
 
         return _internals
@@ -173,10 +192,11 @@ class ContainerInterface:
             *libs: tuple[str | type, LibraryComponent]
     ) -> None:
         logger.debug("Registering %d libraries", len(libs))
+        registration = self.__capture_registration_info(stack_level=2)
         for key, lib in libs:
             lib_id = key if isinstance(key, str) else key.__qualname__
 
-            self.__init_component(lib)
+            self.__init_component(lib, registration)
             component_internals(lib).type = ComponentTypes.LIBRARY
 
             provider = providers.Object(lib)
@@ -195,13 +215,16 @@ class ContainerInterface:
 
     def register_plugins(
             self,
-            *plugins: PluginComponent
+            *plugins: PluginComponent,
+            _registration: Optional[RegistrationInfo] = None
     ) -> None:
         logger.debug("Registering %d plugins", len(plugins))
+        # Use provided registration info (from lifecycle helpers) or capture automatically
+        registration = _registration or self.__capture_registration_info(stack_level=2)
         for plugin in plugins:
             plugin_id = plugin.__metadata__["name"]
 
-            self.__init_component(plugin)
+            self.__init_component(plugin, registration)
             component_internals(plugin).type = ComponentTypes.PLUGIN
 
             provider = providers.Object(plugin)
@@ -227,7 +250,8 @@ class ContainerInterface:
         app_name = app.__metadata__["name"]
         logger.debug("Setting app component: %s", app_name)
 
-        self.__init_component(app)
+        registration = self.__capture_registration_info(stack_level=2)
+        self.__init_component(app, registration)
         component_internals(app).type = ComponentTypes.APP
 
         self._app_component = app

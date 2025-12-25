@@ -23,6 +23,7 @@ from .components.metadata import (
     ComponentMetadata,
     AppMetadata,
     ComponentTypes,
+    RegistrationInfo,
 )
 from .components.protocols import (
     Component,
@@ -35,6 +36,7 @@ from .components.registry import (
     component_requires,
     component_internals,
     component_str,
+    component_registration,
 )
 from .config.base import Settings
 from .config.loaders import load_file
@@ -66,10 +68,12 @@ __all__ = [
     "ComponentMetadata",
     "AppMetadata",
     "ComponentTypes",
+    "RegistrationInfo",
     "as_component",
     "component_requires",
     "component_internals",
     "component_str",
+    "component_registration",
     # Lifecycle
     "initialize_components",
     "shutdown_components",

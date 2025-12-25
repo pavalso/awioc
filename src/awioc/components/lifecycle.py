@@ -1,8 +1,10 @@
 import asyncio
 import inspect
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from .metadata import RegistrationInfo
 from .protocols import Component, PluginComponent
 from .registry import component_requires, component_internals, component_str, component_initialized
 
@@ -149,6 +151,22 @@ async def shutdown_components(
     return components
 
 
+def _find_caller_frame() -> inspect.FrameInfo:
+    """Find the actual caller frame, skipping internal/injector frames."""
+    skip_modules = {
+        "dependency_injector.wiring",
+        "awioc.components.lifecycle",
+    }
+
+    for frame in inspect.stack()[1:]:
+        module_name = frame.frame.f_globals.get("__name__", "")
+        if module_name not in skip_modules:
+            return frame
+
+    # Fallback to immediate caller if nothing found
+    return inspect.stack()[1]
+
+
 async def register_plugin(
         api_container: "ContainerInterface",
         plugin: PluginComponent
@@ -159,7 +177,7 @@ async def register_plugin(
     :param api_container: The application container.
     :param plugin: The plugin component to register.
     """
-    caller_frame = inspect.stack()[2]  # Get the frame of the caller of register_plugin. Avoid Inject frame.
+    caller_frame = _find_caller_frame()
 
     if plugin in api_container.provided_plugins():
         logger.warning("Plugin already registered: %s v%s [From: %s.%s]",
@@ -169,7 +187,15 @@ async def register_plugin(
                        caller_frame.lineno)
         return plugin
 
-    api_container.register_plugins(plugin)
+    # Capture registration info from the actual caller (the component that called register_plugin)
+    registration = RegistrationInfo(
+        registered_by=caller_frame.frame.f_globals.get("__name__", "unknown"),
+        registered_at=datetime.now(),
+        file=caller_frame.filename,
+        line=caller_frame.lineno
+    )
+
+    api_container.register_plugins(plugin, _registration=registration)
 
     logger.debug("Registering plugin: %s v%s [From: %s.%s]",
                  plugin.__metadata__['name'],
