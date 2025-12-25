@@ -17,7 +17,8 @@ from .components.protocols import (
 from .components.registry import (
     component_requires,
     component_internals,
-    component_initialized
+    component_initialized,
+    clean_module_name,
 )
 from .config.base import Settings
 from .config.models import IOCBaseConfig
@@ -145,8 +146,9 @@ class ContainerInterface:
     def __capture_registration_info(stack_level: int = 2) -> RegistrationInfo:
         """Capture registration info from the call stack."""
         frame = inspect.stack()[stack_level]
+        module_name = frame.frame.f_globals.get("__name__", "unknown")
         return RegistrationInfo(
-            registered_by=frame.frame.f_globals.get("__name__", "unknown"),
+            registered_by=clean_module_name(module_name),
             registered_at=datetime.now(),
             file=frame.filename,
             line=frame.lineno

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from .metadata import RegistrationInfo
 from .protocols import Component, PluginComponent
-from .registry import component_requires, component_internals, component_str, component_initialized
+from .registry import component_requires, component_internals, component_str, component_initialized, clean_module_name
 
 if TYPE_CHECKING:
     from ..container import ContainerInterface
@@ -188,8 +188,9 @@ async def register_plugin(
         return plugin
 
     # Capture registration info from the actual caller (the component that called register_plugin)
+    module_name = caller_frame.frame.f_globals.get("__name__", "unknown")
     registration = RegistrationInfo(
-        registered_by=caller_frame.frame.f_globals.get("__name__", "unknown"),
+        registered_by=clean_module_name(module_name),
         registered_at=datetime.now(),
         file=caller_frame.filename,
         line=caller_frame.lineno

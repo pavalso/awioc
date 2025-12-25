@@ -7,6 +7,7 @@ import pydantic
 from dependency_injector.wiring import Provide, provided
 
 from ..components.protocols import AppComponent, Component
+from ..components.registry import clean_module_name
 from ..container import AppContainer, ContainerInterface
 
 _Component = Union[Component, ModuleType, Any]
@@ -77,7 +78,7 @@ def get_logger(*name: str) -> Logger:
     if not name:
         calling_frame = inspect.stack()[1]
         mod = inspect.getmodule(calling_frame[0])
-        name = mod.__name__ if mod else "logger"
+        name = clean_module_name(mod.__name__) if mod else "logger"
     else:
         name = ".".join(name)
 

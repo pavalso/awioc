@@ -100,3 +100,16 @@ def component_registration(component: Component) -> Optional[RegistrationInfo]:
     if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
         return None
     return component.__metadata__["_internals"].registration
+
+
+def clean_module_name(name: str) -> str:
+    """
+    Clean up module name for display, removing __init__ and __main__ parts.
+
+    :param name: The raw module name (e.g., "__init__.dashboard").
+    :return: Cleaned module name (e.g., "dashboard").
+    """
+    if not name:
+        return "unknown"
+    parts = [p for p in name.split(".") if p not in ("__init__", "__main__")]
+    return ".".join(parts) if parts else name
