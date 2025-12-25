@@ -139,6 +139,11 @@ class ContainerInterface:
             provider = self._plugins_map.get(type_.__metadata__["name"])
         return provider() if provider is not None else None
 
+    def provided_component(self, name: str) -> Optional[Component]:
+        """Get a component by its registered name/id."""
+        provider = self._container.components().get(name)
+        return provider() if provider is not None else None
+
     def provided_logger(self) -> Logger:
         return self._container.logger()
 

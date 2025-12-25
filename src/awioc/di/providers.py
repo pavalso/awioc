@@ -37,6 +37,26 @@ def get_plugin(type_: str) -> Optional[_Component_type]:
 
 
 @overload
+def get_component() -> _Component_type:  # pragma: no cover
+    ...
+
+
+@overload
+def get_component(name: str) -> Optional[_Component_type]:  # pragma: no cover
+    ...
+
+
+def get_component(name: Optional[str] = None) -> Optional[_Component_type]:
+    if name is None:
+        calling_frame = inspect.stack()[1]
+        mod = inspect.getmodule(calling_frame[0])
+        if mod is None:
+            raise RuntimeError("Cannot determine calling component: no module found")
+        name = clean_module_name(mod.__name__)
+    return Provide["api", provided().provided_component.call(name)]
+
+
+@overload
 def get_config(model: type[_Model_type]) -> _Model_type:  # pragma: no cover
     ...
 
