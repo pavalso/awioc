@@ -791,6 +791,13 @@
             </div>
             <div class="component-list" id="pluginsSection"></div>
 
+            <!-- Discovered Plugins Section -->
+            <div class="section-header" id="discoveredHeader" style="display:none;">
+                <h3 style="color:#ff9800;">Discovered</h3>
+                <span class="section-count" id="discoveredCount" style="background:#ff9800;">0</span>
+            </div>
+            <div class="component-list" id="discoveredSection"></div>
+
             <div class="upload-section">
                 <input accept=".py" id="pluginFile" multiple onchange="uploadPluginFile()" style="display:none"
                        type="file">
@@ -875,11 +882,6 @@
                     </div>
                 </div>
 
-                <div class="panel-section">
-                    <div class="panel-section-title">State</div>
-                    <div class="panel-state-box" id="panelStateBox">No state</div>
-                </div>
-
                 <div class="panel-section" id="panelInternalsSection">
                     <div class="panel-section-title">Dependencies</div>
                     <div id="panelDependencies">
@@ -959,6 +961,7 @@
     // State
     let currentComponents = [];
     let currentPlugins = [];
+    let discoveredPlugins = [];
     let currentLogs = [];
     let configTargets = [];
     let originalConfigValues = {};  // Track original values to detect changes
@@ -1031,10 +1034,12 @@
             case 'full_state':
                 currentComponents = data.components || [];
                 currentPlugins = data.plugins || [];
+                discoveredPlugins = data.discovered_plugins || [];
                 configTargets = (data.state && data.state.config_targets) || [];
                 updateTopPanel();
                 updateConfigTargetDropdown();
                 renderAllSections();
+                renderDiscoveredPlugins();
                 // Auto-select app if nothing selected
                 if (!selectedComponent) {
                     const apps = currentComponents.filter(c => c.type === 'app');
@@ -1220,6 +1225,63 @@
         document.getElementById('pluginCount').textContent = plugins.length;
     }
 
+    function renderDiscoveredPlugins() {
+        const container = document.getElementById('discoveredSection');
+        const header = document.getElementById('discoveredHeader');
+        const countEl = document.getElementById('discoveredCount');
+
+        if (!container || !header) return;
+
+        if (discoveredPlugins.length === 0) {
+            header.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+
+        header.style.display = 'flex';
+        countEl.textContent = discoveredPlugins.length;
+
+        container.innerHTML = discoveredPlugins.map(plugin => `
+            <div class="component-card discovered" style="border-left: 3px solid #ff9800;">
+                <div class="component-card-header">
+                    <div>
+                        <div class="component-card-name">${escapeHtml(plugin.name)}</div>
+                        <div class="component-card-version" style="color:#ff9800;">
+                            ${plugin.is_directory ? '📁 Directory' : '📄 File'}
+                        </div>
+                    </div>
+                    <span class="component-card-status" style="background:#ff9800;color:#000;">Not Registered</span>
+                </div>
+                <div style="margin-top:8px;display:flex;gap:6px;">
+                    <button class="btn btn-enable" style="font-size:0.75em;padding:4px 10px;"
+                            onclick="registerDiscoveredPlugin('${escapeJs(plugin.path)}')">Register</button>
+                    <button class="btn btn-danger" style="font-size:0.75em;padding:4px 10px;"
+                            onclick="removeDiscoveredPlugin('${escapeJs(plugin.path)}', '${escapeJs(plugin.name)}')">Remove</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function registerDiscoveredPlugin(path) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            showToast('Not connected', 'error');
+            return;
+        }
+        ws.send(JSON.stringify({ action: 'register_plugin', path: path }));
+        showToast('Registering plugin...', 'info');
+    }
+
+    function removeDiscoveredPlugin(path, name) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            showToast('Not connected', 'error');
+            return;
+        }
+        if (confirm(`Are you sure you want to remove "${name}" from disk? This cannot be undone.`)) {
+            ws.send(JSON.stringify({ action: 'remove_plugin', path: path }));
+            showToast('Removing plugin...', 'info');
+        }
+    }
+
     function clearItemFilters() {
         document.getElementById('itemSearch').value = '';
         document.getElementById('itemStatus').value = '';
@@ -1253,9 +1315,6 @@
 
         const statusEl = document.getElementById('panelStatus');
         statusEl.innerHTML = `<span class="status ${getStatusClass(item)}">${getStatusLabel(item)}</span>`;
-
-        const stateBox = document.getElementById('panelStateBox');
-        stateBox.textContent = JSON.stringify(item.state || {}, null, 2);
 
         // Internals
         const internals = item.internals || {};

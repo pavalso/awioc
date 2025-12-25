@@ -246,6 +246,7 @@ class WebSocketManager:
         self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
         self._log_buffer: Optional[LogBuffer] = None
         self._plugin_upload_path: Optional[Path] = None
+        self._discovered_plugins: Dict[str, dict] = {}  # path -> plugin info
 
     def set_container(self, container: ContainerInterface):
         self._container = container
@@ -589,11 +590,13 @@ class WebSocketManager:
                 "initialized_components": initialized_count,
                 "plugins_count": len(plugins),
                 "libraries_count": len(libs),
+                "discovered_plugins_count": len(self._discovered_plugins),
                 "config_file": config_file_path,
                 "config_targets": config_targets,
             },
             "components": [self._get_component_info(c) for c in components],
             "plugins": [self._get_component_info(p) for p in plugins],
+            "discovered_plugins": list(self._discovered_plugins.values()),
         }
 
     async def broadcast(self, message: dict):
@@ -823,6 +826,14 @@ class WebSocketManager:
             if result.get("type") in ("success", "info"):
                 await self.broadcast_state()
 
+        elif action == "remove_plugin":
+            plugin_path = data.get("path")
+            result = await self._remove_plugin_file(plugin_path)
+            await websocket.send(json.dumps(result))
+            # Refresh state for all clients after removal
+            if result.get("type") == "success":
+                await self.broadcast_state()
+
     def _run_in_main_loop(self, coro) -> Any:
         """Run a coroutine in the main event loop and wait for result."""
         if self._main_loop is None:
@@ -953,6 +964,10 @@ class WebSocketManager:
                 comp_type = internals.type.value
                 with self._log_buffer._lock:
                     self._log_buffer._component_info[module_name] = (display_name, comp_type)
+
+            # Remove from discovered plugins list
+            resolved_path = str(path.resolve())
+            self._discovered_plugins.pop(resolved_path, None)
 
             if auto_initialize:
                 return {"type": "success", "message": f"Plugin '{plugin_name}' registered and initialized successfully"}
@@ -1297,10 +1312,9 @@ class WebSocketManager:
             self,
             logger=get_logger()
     ) -> dict:
-        """Sync plugins from the configured upload path.
+        """Discover plugins from the configured upload path without auto-registering.
 
-        - Registers any plugins found in the path that aren't already registered
-        - Unregisters any plugins that were loaded from that path but no longer exist
+        Updates the list of discovered plugins that can be registered manually.
         """
         if not self._plugin_upload_path:
             return {"type": "error", "error": "Plugin upload path not configured"}
@@ -1327,73 +1341,80 @@ class WebSocketManager:
 
             # Get currently registered plugins and their paths
             registered_plugins = self._container.provided_plugins()
-            registered_paths: Dict[Path, Any] = {}  # path -> plugin module
+            registered_paths: Set[Path] = set()
 
             for plugin in registered_plugins:
                 plugin_file = getattr(plugin, "__file__", None)
                 if plugin_file:
                     plugin_path = Path(plugin_file).resolve()
-                    # Check if this plugin is from the upload path
-                    try:
-                        plugin_path.relative_to(self._plugin_upload_path.resolve())
-                        registered_paths[plugin_path] = plugin
-                    except ValueError:
-                        # Plugin is not from the upload path, skip
-                        pass
+                    registered_paths.add(plugin_path)
 
-            registered = 0
-            unregistered = 0
-            errors = []
-
-            # Register new plugins (on disk but not registered)
+            # Update discovered plugins (on disk but not registered)
+            self._discovered_plugins.clear()
             for path in plugin_paths_on_disk:
                 if path not in registered_paths:
-                    logger.info(f"Auto-registering plugin from: {path}")
-                    result = await self._register_plugin_from_path(str(path), auto_initialize=False)
-                    if result.get("type") == "success":
-                        registered += 1
-                    elif result.get("type") == "error":
-                        errors.append(f"{path.name}: {result.get('error')}")
+                    # Extract basic info from the file
+                    plugin_name = path.stem if path.is_file() else path.name
+                    self._discovered_plugins[str(path)] = {
+                        "name": plugin_name,
+                        "path": str(path),
+                        "is_directory": path.is_dir(),
+                    }
 
-            # Unregister removed plugins (registered but no longer on disk)
-            for path, plugin in registered_paths.items():
-                if path not in plugin_paths_on_disk:
-                    plugin_name = plugin.__metadata__.get("name", "unknown")
-                    internals = component_internals(plugin)
-
-                    # Only unregister if not active
-                    if not internals.is_initialized:
-                        logger.info(f"Auto-unregistering removed plugin: {plugin_name}")
-                        result = await self._unregister_plugin(plugin_name)
-                        if result.get("type") == "success":
-                            unregistered += 1
-                        elif result.get("type") == "error":
-                            errors.append(f"{plugin_name}: {result.get('error')}")
-                    else:
-                        logger.warning(
-                            f"Plugin '{plugin_name}' was removed from disk but is still active. Disable it to unregister.")
-
-            # Build response message
-            parts = []
-            if registered > 0:
-                parts.append(f"registered {registered}")
-            if unregistered > 0:
-                parts.append(f"unregistered {unregistered}")
-            if errors:
-                parts.append(f"{len(errors)} error(s)")
-
-            if not parts:
-                return {"type": "info", "message": "Plugins are in sync"}
-
-            message = f"Sync complete: {', '.join(parts)}"
-            if errors:
-                message += f". Errors: {'; '.join(errors)}"
-                return {"type": "error" if not (registered or unregistered) else "success", "message": message}
-
-            return {"type": "success", "message": message}
+            discovered_count = len(self._discovered_plugins)
+            if discovered_count > 0:
+                return {"type": "success", "message": f"Found {discovered_count} unregistered plugin(s)"}
+            return {"type": "info", "message": "No unregistered plugins found"}
 
         except Exception as e:
-            logger.error("Error syncing plugins from path", exc_info=e)
+            logger.error("Error discovering plugins from path", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _remove_plugin_file(
+            self,
+            plugin_path: str,
+            logger=get_logger()
+    ) -> dict:
+        """Remove a plugin file or directory from disk."""
+        import shutil
+
+        if not plugin_path:
+            return {"type": "error", "error": "Plugin path is required"}
+
+        path = Path(plugin_path).resolve()
+
+        # Security check: ensure the path is within the upload directory
+        if not self._plugin_upload_path:
+            return {"type": "error", "error": "Plugin upload path not configured"}
+
+        try:
+            path.relative_to(self._plugin_upload_path.resolve())
+        except ValueError:
+            return {"type": "error", "error": "Cannot remove plugins outside the upload directory"}
+
+        if not path.exists():
+            # Remove from discovered list if present
+            self._discovered_plugins.pop(str(path), None)
+            return {"type": "error", "error": "Plugin file not found"}
+
+        try:
+            plugin_name = path.stem if path.is_file() else path.name
+
+            if path.is_file():
+                path.unlink()
+                logger.info(f"Removed plugin file: {path}")
+            elif path.is_dir():
+                shutil.rmtree(path)
+                logger.info(f"Removed plugin directory: {path}")
+
+            # Remove from discovered list
+            self._discovered_plugins.pop(str(path), None)
+
+            return {"type": "success", "message": f"Plugin '{plugin_name}' removed from disk"}
+
+        except Exception as e:
+            logger.error(f"Error removing plugin file '{plugin_path}'", exc_info=e)
             return {"type": "error", "error": str(e)}
 
     @inject
@@ -1790,13 +1811,15 @@ class ManagementDashboardApp:
         ws_manager.set_plugin_upload_path(upload_path)
         logger.info(f"Plugin upload path: {upload_path}")
 
-        # Auto-sync plugins from the upload path
-        logger.info("Syncing plugins from upload path...")
+        # Discover plugins from the upload path (without auto-registering)
+        logger.info("Discovering plugins from upload path...")
         sync_result = await ws_manager._sync_plugins_from_path()
         if sync_result.get("type") == "success":
             logger.info(sync_result.get("message"))
+        elif sync_result.get("type") == "info":
+            logger.info(sync_result.get("message"))
         elif sync_result.get("type") == "error":
-            logger.warning(f"Plugin sync issue: {sync_result.get('message') or sync_result.get('error')}")
+            logger.warning(f"Plugin discovery issue: {sync_result.get('message') or sync_result.get('error')}")
 
         # Start WebSocket server with state monitoring
         logger.info(f"Starting WebSocket server on {config.host}:{config.ws_port}")
