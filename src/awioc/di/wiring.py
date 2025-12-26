@@ -80,7 +80,9 @@ def wire(
                 if not isinstance(wirings_, Iterable) or isinstance(wirings_, str):
                     wirings_ = (wirings_,)
 
-                if component.__package__:
+                # If the component is a module, we can retrieve its package via __package__
+                # But if it's an instance, we need to get the package from its class
+                if getattr(component, "__package__", None):
                     relative_wirings = set(
                         f"{component.__package__}.{wiring}"
                         for wiring in wirings_

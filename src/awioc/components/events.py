@@ -85,13 +85,52 @@ def on_event(
 on = on_event
 
 
+def _get_component_handler(component: "Component", event: ComponentEvent) -> Optional[EventHandler]:
+    """
+    Get the component-specific handler for an event, if it exists.
+
+    Components can define handlers as attributes named after the event:
+    - on_before_initialize
+    - on_after_initialize
+    - on_before_shutdown
+    - on_after_shutdown
+
+    :param component: The component to check.
+    :param event: The event type.
+    :return: The handler function if found, None otherwise.
+    """
+    handler_name = f"on_{event.value}"
+    handler = getattr(component, handler_name, None)
+    if handler is not None and callable(handler):
+        return handler
+    return None
+
+
 async def emit(component: "Component", event: ComponentEvent) -> None:
     """
     Emit an event for a component, calling all registered handlers whose check passes.
 
+    Also calls component-specific handlers if the component has an attribute named
+    after the event (e.g., on_before_initialize, on_after_initialize, etc.).
+
     :param component: The component emitting the event.
     :param event: The event being emitted.
     """
+    # Check for component-specific handler first (called without arguments, uses self)
+    component_handler = _get_component_handler(component, event)
+    if component_handler is not None:
+        try:
+            logger.debug("Calling component handler %s for %s",
+                         f"on_{event.value}", component.__metadata__["name"])
+            result = component_handler()
+            if inspect.iscoroutine(result):
+                await result
+        except Exception as e:
+            logger.exception("Error in component handler for %s on %s: %s",
+                             event.value, component.__metadata__["name"], e)
+            raise
+
+    # Then call globally registered handlers
     if event not in _handlers:
         return
 
@@ -104,7 +143,7 @@ async def emit(component: "Component", event: ComponentEvent) -> None:
     if not handlers_to_call:
         return
 
-    logger.debug("Emitting %s for component %s (%d handlers)",
+    logger.debug("Emitting %s for component %s (%d global handlers)",
                  event.value, component.__metadata__["name"], len(handlers_to_call))
 
     for handler in handlers_to_call:

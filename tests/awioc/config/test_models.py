@@ -10,19 +10,19 @@ class TestIOCComponentsDefinition:
 
     def test_minimal_definition(self):
         """Test minimal valid definition."""
-        definition = IOCComponentsDefinition(app=Path("./app"))
-        assert definition.app == Path("./app")
+        definition = IOCComponentsDefinition(app="./app")
+        assert "app" in definition.app
         assert definition.libraries == {}
         assert definition.plugins == []
 
     def test_full_definition(self):
         """Test definition with all fields."""
         definition = IOCComponentsDefinition(
-            app=Path("./app"),
-            libraries={"db": Path("./libs/db"), "cache": Path("./libs/cache")},
-            plugins=[Path("./plugins/auth"), Path("./plugins/logging")]
+            app="./app",
+            libraries={"db": "./libs/db", "cache": "./libs/cache"},
+            plugins=["./plugins/auth", "./plugins/logging"]
         )
-        assert definition.app == Path("./app")
+        assert "app" in definition.app
         assert len(definition.libraries) == 2
         assert len(definition.plugins) == 2
 
@@ -34,7 +34,18 @@ class TestIOCComponentsDefinition:
             "plugins": ["./plugin1"]
         }
         definition = IOCComponentsDefinition.model_validate(data)
-        assert definition.app == Path("./app")
+        assert "app" in definition.app
+
+    def test_definition_with_reference(self):
+        """Test definition with path:reference syntax."""
+        definition = IOCComponentsDefinition(
+            app="./app:MyApp",
+            libraries={"db": "./libs/db:DatabaseLibrary"},
+            plugins=["./plugins/auth:AuthPlugin()"]
+        )
+        assert "app" in definition.app and ":MyApp" in definition.app
+        assert ":DatabaseLibrary" in definition.libraries["db"]
+        assert ":AuthPlugin()" in definition.plugins[0]
 
     def test_definition_requires_app(self):
         """Test that app is required."""

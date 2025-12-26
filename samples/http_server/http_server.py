@@ -23,7 +23,11 @@ from typing import Optional
 
 import pydantic
 
-from awioc import get_config, get_logger, inject
+from awioc import (
+    get_config,
+    get_logger,
+    inject
+)
 
 
 class ServerConfig(pydantic.BaseModel):
@@ -54,15 +58,6 @@ class ServerConfig(pydantic.BaseModel):
         default=False,
         description="Allow users to download folders as ZIP archives"
     )
-
-
-__metadata__ = {
-    "name": "HTTP File Server",
-    "version": "2.0.0",
-    "description": "HTTP File Server with upload, download, and delete capabilities",
-    "wire": True,
-    "config": ServerConfig
-}
 
 # Global config reference (set during initialization)
 _server_config: Optional[ServerConfig] = None
@@ -501,6 +496,13 @@ class HttpServerApp:
 
     Provides a web-based file browser with upload, download, and delete capabilities.
     """
+    __metadata__ = {
+        "name": "HTTP File Server",
+        "version": "2.0.0",
+        "description": "HTTP File Server with upload, download, and delete capabilities",
+        "wire": True,
+        "config": ServerConfig
+    }
 
     def __init__(self):
         self._server: Optional[ThreadingHTTPServer] = None
@@ -563,9 +565,3 @@ class HttpServerApp:
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
-
-
-http_server_app = HttpServerApp()
-initialize = http_server_app.initialize
-shutdown = http_server_app.shutdown
-wait = http_server_app.wait

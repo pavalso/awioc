@@ -814,7 +814,7 @@ async def test_component_initialization(container, sample_component):
 See the complete example in `samples/http_server/`:
 
 ```python
-# samples/http_server/http_server.py
+# samples/http_server/__init__.py
 import asyncio
 from ioc import get_config, get_logger, inject
 import pydantic

@@ -13,21 +13,39 @@ _sources: list[
         PydanticBaseSettingsSource]
 ] = []
 
-class IOCComponentsDefinition(pydantic.BaseModel):
-    app: Path
 
-    libraries: dict[str, Path] = pydantic.Field(default_factory=dict)
-    plugins: list[Path] = pydantic.Field(default_factory=list)
+def _expand_component_path(component_ref: str) -> str:
+    """
+    Expand the path portion of a component reference.
+
+    Component references can be in the format:
+    - "path/to/module" - just a path
+    - "path/to/module:attribute" - path with attribute reference
+
+    :param component_ref: The component reference string.
+    :return: The reference with expanded path.
+    """
+    if ":" in component_ref:
+        path_part, ref_part = component_ref.rsplit(":", 1)
+        return f"{expanded_path(path_part)}:{ref_part}"
+    return str(expanded_path(component_ref))
+
+
+class IOCComponentsDefinition(pydantic.BaseModel):
+    app: str
+
+    libraries: dict[str, str] = pydantic.Field(default_factory=dict)
+    plugins: list[str] = pydantic.Field(default_factory=list)
 
     @pydantic.model_validator(mode="after")
     def validate_paths(self) -> "IOCComponentsDefinition":
-        self.app = expanded_path(self.app)
+        self.app = _expand_component_path(self.app)
         self.libraries = {
-            name: expanded_path(path)
+            name: _expand_component_path(path)
             for name, path in self.libraries.items()
         }
         self.plugins = [
-            expanded_path(path)
+            _expand_component_path(path)
             for path in self.plugins
         ]
         return self

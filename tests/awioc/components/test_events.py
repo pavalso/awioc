@@ -580,3 +580,298 @@ class TestLifecycleIntegration:
         await initialize_components(simple_component)
 
         assert results == ["async_done"]
+
+
+class TestComponentSpecificEventHandlers:
+    """Tests for component-specific event handlers (on_before_initialize, etc.)."""
+
+    @pytest.fixture(autouse=True)
+    def clear_all_handlers(self):
+        """Clear handlers before and after each test."""
+        clear_handlers()
+        yield
+        clear_handlers()
+
+    @pytest.mark.asyncio
+    async def test_on_before_initialize_called(self):
+        """Test on_before_initialize attribute is called before initialize."""
+        events = []
+
+        class ComponentWithHandler:
+            __metadata__ = {
+                "name": "handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            def on_before_initialize(self):
+                events.append("on_before_initialize")
+
+            async def initialize(self):
+                events.append("initialize")
+
+            shutdown = None
+
+        comp = ComponentWithHandler()
+        await initialize_components(comp)
+
+        assert events == ["on_before_initialize", "initialize"]
+
+    @pytest.mark.asyncio
+    async def test_on_after_initialize_called(self):
+        """Test on_after_initialize attribute is called after initialize."""
+        events = []
+
+        class ComponentWithHandler:
+            __metadata__ = {
+                "name": "handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            async def initialize(self):
+                events.append("initialize")
+
+            def on_after_initialize(self):
+                events.append("on_after_initialize")
+
+            shutdown = None
+
+        comp = ComponentWithHandler()
+        await initialize_components(comp)
+
+        assert events == ["initialize", "on_after_initialize"]
+
+    @pytest.mark.asyncio
+    async def test_on_before_shutdown_called(self):
+        """Test on_before_shutdown attribute is called before shutdown."""
+        events = []
+
+        class ComponentWithHandler:
+            __metadata__ = {
+                "name": "handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            async def initialize(self):
+                pass
+
+            def on_before_shutdown(self):
+                events.append("on_before_shutdown")
+
+            async def shutdown(self):
+                events.append("shutdown")
+
+        comp = ComponentWithHandler()
+        await initialize_components(comp)
+        await shutdown_components(comp)
+
+        assert events == ["on_before_shutdown", "shutdown"]
+
+    @pytest.mark.asyncio
+    async def test_on_after_shutdown_called(self):
+        """Test on_after_shutdown attribute is called after shutdown."""
+        events = []
+
+        class ComponentWithHandler:
+            __metadata__ = {
+                "name": "handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            async def initialize(self):
+                pass
+
+            async def shutdown(self):
+                events.append("shutdown")
+
+            def on_after_shutdown(self):
+                events.append("on_after_shutdown")
+
+        comp = ComponentWithHandler()
+        await initialize_components(comp)
+        await shutdown_components(comp)
+
+        assert events == ["shutdown", "on_after_shutdown"]
+
+    @pytest.mark.asyncio
+    async def test_async_component_handlers(self):
+        """Test async component-specific handlers work."""
+        events = []
+
+        class ComponentWithAsyncHandlers:
+            __metadata__ = {
+                "name": "async_handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            async def on_before_initialize(self):
+                await asyncio.sleep(0.01)
+                events.append("async_on_before_initialize")
+
+            async def initialize(self):
+                events.append("initialize")
+
+            shutdown = None
+
+        comp = ComponentWithAsyncHandlers()
+        await initialize_components(comp)
+
+        assert events == ["async_on_before_initialize", "initialize"]
+
+    @pytest.mark.asyncio
+    async def test_all_component_handlers_full_lifecycle(self):
+        """Test all component-specific handlers in a full lifecycle."""
+        events = []
+
+        class ComponentWithAllHandlers:
+            __metadata__ = {
+                "name": "full_handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            def on_before_initialize(self):
+                events.append("on_before_initialize")
+
+            async def initialize(self):
+                events.append("initialize")
+
+            def on_after_initialize(self):
+                events.append("on_after_initialize")
+
+            def on_before_shutdown(self):
+                events.append("on_before_shutdown")
+
+            async def shutdown(self):
+                events.append("shutdown")
+
+            def on_after_shutdown(self):
+                events.append("on_after_shutdown")
+
+        comp = ComponentWithAllHandlers()
+        await initialize_components(comp)
+        await shutdown_components(comp)
+
+        assert events == [
+            "on_before_initialize",
+            "initialize",
+            "on_after_initialize",
+            "on_before_shutdown",
+            "shutdown",
+            "on_after_shutdown"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_component_handler_called_before_global_handlers(self):
+        """Test component-specific handlers are called before global handlers."""
+        events = []
+
+        class ComponentWithHandler:
+            __metadata__ = {
+                "name": "handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            def on_after_initialize(self):
+                events.append("component_handler")
+
+            initialize = None
+            shutdown = None
+
+        @on_event(ComponentEvent.AFTER_INITIALIZE)
+        def global_handler(component):
+            events.append("global_handler")
+
+        comp = ComponentWithHandler()
+        await initialize_components(comp)
+
+        assert events == ["component_handler", "global_handler"]
+
+    @pytest.mark.asyncio
+    async def test_component_handler_exception_propagates(self):
+        """Test component handler exceptions propagate."""
+
+        class ComponentWithFailingHandler:
+            __metadata__ = {
+                "name": "failing_handler_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            def on_before_initialize(self):
+                raise ValueError("Component handler failed")
+
+            initialize = None
+            shutdown = None
+
+        comp = ComponentWithFailingHandler()
+
+        with pytest.raises(ValueError, match="Component handler failed"):
+            await initialize_components(comp)
+
+    @pytest.mark.asyncio
+    async def test_non_callable_attribute_ignored(self):
+        """Test non-callable attributes named like handlers are ignored."""
+        events = []
+
+        class ComponentWithNonCallable:
+            __metadata__ = {
+                "name": "non_callable_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            on_before_initialize = "not a function"
+
+            async def initialize(self):
+                events.append("initialize")
+
+            shutdown = None
+
+        comp = ComponentWithNonCallable()
+        await initialize_components(comp)
+
+        # Should only have initialize, not crash on non-callable
+        assert events == ["initialize"]
+
+    @pytest.mark.asyncio
+    async def test_component_without_handlers_still_works(self):
+        """Test components without handler attributes still work normally."""
+        events = []
+
+        class NormalComponent:
+            __metadata__ = {
+                "name": "normal_component",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": Internals()
+            }
+
+            async def initialize(self):
+                events.append("initialize")
+
+            async def shutdown(self):
+                events.append("shutdown")
+
+        @on_event(ComponentEvent.AFTER_INITIALIZE)
+        def global_handler(component):
+            events.append("global_handler")
+
+        comp = NormalComponent()
+        await initialize_components(comp)
+
+        assert events == ["initialize", "global_handler"]

@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from src.awioc.bootstrap import (
@@ -76,7 +75,7 @@ class TestIOCComponentsDefinition:
     def test_empty_libraries_and_plugins(self):
         """Test definition with empty libraries and plugins."""
         definition = IOCComponentsDefinition(
-            app=Path("./app"),
+            app="./app",
             libraries={},
             plugins=[]
         )
@@ -86,11 +85,11 @@ class TestIOCComponentsDefinition:
     def test_multiple_libraries(self):
         """Test definition with multiple libraries."""
         definition = IOCComponentsDefinition(
-            app=Path("./app"),
+            app="./app",
             libraries={
-                "lib1": Path("./lib1"),
-                "lib2": Path("./lib2"),
-                "lib3": Path("./lib3")
+                "lib1": "./lib1",
+                "lib2": "./lib2",
+                "lib3": "./lib3"
             }
         )
         assert len(definition.libraries) == 3
@@ -98,11 +97,11 @@ class TestIOCComponentsDefinition:
     def test_multiple_plugins(self):
         """Test definition with multiple plugins."""
         definition = IOCComponentsDefinition(
-            app=Path("./app"),
+            app="./app",
             plugins=[
-                Path("./plugin1"),
-                Path("./plugin2"),
-                Path("./plugin3")
+                "./plugin1",
+                "./plugin2",
+                "./plugin3"
             ]
         )
         assert len(definition.plugins) == 3

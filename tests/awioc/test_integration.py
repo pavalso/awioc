@@ -944,7 +944,7 @@ shutdown = None
 
     def test_compile_component_not_found_raises(self, temp_dir):
         """Test that loading non-existent component raises error."""
-        with pytest.raises(FileNotFoundError, match="Component not found"):
+        with pytest.raises(FileNotFoundError, match="Module not found"):
             compile_component(temp_dir / "nonexistent")
 
 
