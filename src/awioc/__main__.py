@@ -88,7 +88,7 @@ def configure_logging(config: CLIConfig) -> None:
 
     Priority:
     1. logging_config (.ini file) if provided
-    2. verbose level (-v, -vv, -vvv)
+    2. verbose level (-v, -vv, -vv)
     3. Default (INFO level, simple format)
     """
     if config.logging_config and config.logging_config.exists():

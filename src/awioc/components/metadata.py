@@ -1,7 +1,14 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, TypedDict, Optional, Union
+from typing import (
+    TYPE_CHECKING,
+    TypedDict,
+    Optional,
+    Union,
+    overload,
+    Iterable
+)
 
 import pydantic
 
@@ -26,8 +33,7 @@ class RegistrationInfo:
     line: Optional[int] = None  # Line number where registration occurred
 
     def __str__(self) -> str:
-        parts = [f"by '{self.registered_by}'"]
-        parts.append(f"at {self.registered_at.isoformat()}")
+        parts = [f"by '{self.registered_by}'", f"at {self.registered_at.isoformat()}"]
         if self.file:
             location = f"{self.file}:{self.line}" if self.line else self.file
             parts.append(f"from {location}")
@@ -78,3 +84,87 @@ class AppMetadata(ComponentMetadata):
 
 # Type alias for flexibility
 ComponentMetadataType = Union[ComponentMetadata, dict]
+
+
+@overload
+def metadata(
+        *,
+        name: str,
+        version: str,
+        description: str,
+        wire: Optional[bool] = True,
+        wirings: Optional[set[str]] = None,
+        requires: Optional[set["Component"]] = None,
+        config: Optional[Union[set[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
+        **kwargs
+) -> ComponentMetadata:
+    ...
+
+
+@overload
+def metadata(
+        *,
+        name: str,
+        version: str,
+        description: str,
+        wire: Optional[bool] = True,
+        wirings: Optional[Iterable[str]] = None,
+        requires: Optional[Iterable["Component"]] = None,
+        config: Optional[Union[Iterable[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
+        base_config: Optional[type["Settings"]],
+        **kwargs
+) -> AppMetadata:
+    ...
+
+
+def metadata(
+        *,
+        name: str,
+        version: str,
+        description: str,
+        wire: Optional[bool] = True,
+        wirings: Optional[Iterable[str]] = None,
+        requires: Optional[Iterable["Component"]] = None,
+        config: Optional[Union[Iterable[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
+        base_config: Optional[type["Settings"]] = None,
+        **kwargs
+) -> Union[ComponentMetadata, AppMetadata]:
+    """
+    Create metadata for a component.
+
+    Args:
+        name (str): The name of the component.
+        version (str): The version of the component.
+        description (str): A brief description of the component.
+        wire (Optional[bool]): Whether the component should be auto-wired.
+        wirings (Optional[Iterable[str]]): An iterable of module names to wire.
+        requires (Optional[Iterable[Component]]): An iterable of other components this component depends on.
+            Those components MUST be registered in the container for this component to work.
+        config (Optional[Union[Iterable[type[BaseModel]], type[BaseModel]]]): An optional Pydantic model or iterable of models for configuration.
+        base_config (Optional[type[Settings]]): An optional base configuration class for app components.
+        **kwargs: Additional keyword arguments to include in the metadata.
+    """
+    if wirings is not None:
+        wirings = set(wirings)
+    if requires is not None:
+        requires = set(requires)
+    if config is not None:
+        if isinstance(config, type) and issubclass(config, pydantic.BaseModel):
+            config = {config}
+        else:
+            config = set(config)
+
+    meta: ComponentMetadataType = {
+        "name": name,
+        "version": version,
+        "description": description,
+        "wire": wire,
+        "wirings": wirings or set(),
+        "requires": requires or set(),
+        "config": config or set(),
+        "_internals": None,
+        **kwargs
+    }
+    if base_config is not None:
+        meta["base_config"] = base_config
+    return meta

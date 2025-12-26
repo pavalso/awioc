@@ -26,7 +26,8 @@ import pydantic
 from awioc import (
     get_config,
     get_logger,
-    inject
+    inject,
+    as_component
 )
 
 
@@ -490,19 +491,19 @@ class FileServerHandler(BaseHTTPRequestHandler):
         pass
 
 
+@as_component(
+    name="Http File Server",
+    version="2.0.0",
+    description="HTTP File Server with upload, download, and delete capabilities",
+    wire=True,
+    config=ServerConfig
+)
 class HttpServerApp:
     """
     HTTP File Server App Component.
 
     Provides a web-based file browser with upload, download, and delete capabilities.
     """
-    __metadata__ = {
-        "name": "HTTP File Server",
-        "version": "2.0.0",
-        "description": "HTTP File Server with upload, download, and delete capabilities",
-        "wire": True,
-        "config": ServerConfig
-    }
 
     def __init__(self):
         self._server: Optional[ThreadingHTTPServer] = None

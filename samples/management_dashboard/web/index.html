@@ -432,6 +432,39 @@
         .btn-secondary { background: #455a64; color: #fff; }
         .btn-danger { background: #ff5252; color: #fff; }
 
+        /* Configuration tabs for multiple configs */
+        .config-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+        .config-tab {
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px 6px 0 0;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+        .config-tab:hover {
+            background: rgba(0,0,0,0.3);
+            color: #ccc;
+        }
+        .config-tab.active {
+            background: rgba(0, 217, 255, 0.1);
+            border-color: rgba(0, 217, 255, 0.3);
+            color: #00d9ff;
+        }
+        .config-prefix-badge {
+            font-size: 0.8em;
+            color: #888;
+            margin-left: 6px;
+        }
+
         /* Configuration form */
         .config-form {
             display: flex;
@@ -909,6 +942,7 @@
 
                 <div class="panel-section" id="panelConfigSection" style="display:none;">
                     <div class="panel-section-title">Configuration</div>
+                    <div class="config-tabs" id="configTabs" style="display:none;"></div>
                     <div class="config-form" id="panelConfigForm"></div>
                     <div class="config-actions">
                         <select id="configTargetFile"
@@ -970,6 +1004,8 @@
     let reconnectAttempts = 0;
     let selectedComponent = null;
     let currentPanelItem = null;
+    let currentConfigPrefix = null;  // Track current config prefix for multiple configs
+    let currentConfigs = [];         // Array of config objects for current item
     let treeNodeIdCounter = 0;
 
     // Tab switching
@@ -1489,22 +1525,84 @@
     function renderConfigForm(item) {
         const configSection = document.getElementById('panelConfigSection');
         const configForm = document.getElementById('panelConfigForm');
+        const configTabs = document.getElementById('configTabs');
 
-        if (!item.config || !item.config.schema) {
+        // Handle both array of configs and legacy single config object
+        let configs = item.config;
+        if (!configs) {
             configSection.style.display = 'none';
+            currentConfigs = [];
+            currentConfigPrefix = null;
             return;
         }
 
+        // Normalize to array
+        if (!Array.isArray(configs)) {
+            configs = [configs];
+        }
+
+        // Filter out configs without schema
+        configs = configs.filter(c => c && c.schema);
+        if (configs.length === 0) {
+            configSection.style.display = 'none';
+            currentConfigs = [];
+            currentConfigPrefix = null;
+            return;
+        }
+
+        currentConfigs = configs;
         configSection.style.display = 'block';
+
+        // Render tabs if multiple configs
+        if (configs.length > 1) {
+            configTabs.style.display = 'flex';
+            configTabs.innerHTML = '';
+            configs.forEach((cfg, index) => {
+                const tab = document.createElement('button');
+                tab.type = 'button'; // Prevent form submission
+                tab.className = 'config-tab' + (index === 0 ? ' active' : '');
+                tab.textContent = cfg.prefix || `Config ${index + 1}`;
+                tab.dataset.configIndex = index;
+                tab.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    switchConfigTab(parseInt(e.currentTarget.dataset.configIndex, 10));
+                });
+                configTabs.appendChild(tab);
+            });
+        } else {
+            configTabs.style.display = 'none';
+        }
+
+        // Render first config
+        renderSingleConfig(configs[0]);
+    }
+
+    function switchConfigTab(index) {
+        if (index < 0 || index >= currentConfigs.length) return;
+
+        // Update tab active state
+        const tabs = document.querySelectorAll('#configTabs .config-tab');
+        tabs.forEach((tab, i) => {
+            tab.classList.toggle('active', i === index);
+        });
+
+        // Render selected config
+        renderSingleConfig(currentConfigs[index]);
+    }
+
+    function renderSingleConfig(config) {
+        const configForm = document.getElementById('panelConfigForm');
         configForm.innerHTML = '';
         treeNodeIdCounter = 0;
 
         // Reset tracking for original values and secrets
         originalConfigValues = {};
         secretFields = new Set();
+        currentConfigPrefix = config.prefix || null;
 
-        const schema = item.config.schema;
-        const values = item.config.values || {};
+        const schema = config.schema;
+        const values = config.values || {};
         const properties = schema.properties || {};
 
         // Store original values for change detection
@@ -2268,12 +2366,17 @@
         }
 
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
+            const message = {
                 action: 'save_config',
                 name: currentPanelItem.name,
                 config: values,
                 target_file: targetFile
-            }));
+            };
+            // Include prefix for components with multiple configs
+            if (currentConfigPrefix) {
+                message.prefix = currentConfigPrefix;
+            }
+            ws.send(JSON.stringify(message));
         }
     }
 

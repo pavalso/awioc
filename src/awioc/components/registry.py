@@ -1,39 +1,84 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Callable, overload, Iterable, TypeVar
 
-from .metadata import Internals, RegistrationInfo
+from pydantic import BaseModel
+
+from .metadata import Internals, RegistrationInfo, metadata
 from .protocols import Component
 
 logger = logging.getLogger(__name__)
 
+C = TypeVar("C", bound=Any)
 
-def as_component(obj: Any) -> Component:
-    """
-    Convert an object to a Component by adding metadata if missing.
 
-    :param obj: The object to convert.
-    :return: The object as a Component.
-    """
-    if not hasattr(obj, "__metadata__"):
-        name = getattr(obj, "__qualname__", obj.__class__.__qualname__)
-        logger.debug("Converting object to component: %s", name)
-        obj.__metadata__ = {
-            "name": name,
-            "version": "0.0.0",
-            "wire": False,
-            "description": getattr(obj, "__doc__", "") or ""
-        }
+@overload
+def as_component(ref: object) -> Component: ...
 
-    if not hasattr(obj, "initialize"):
-        obj.initialize = None
 
-    if not hasattr(obj, "shutdown"):
-        obj.shutdown = None
+@overload
+def as_component(
+        *,
+        name: Optional[str] = ...,
+        version: Optional[str] = ...,
+        description: Optional[str] = ...,
+        wire: bool = ...,
+        wirings: Optional[Iterable[str]] = ...,
+        requires: Optional[Iterable[Component]] = ...,
+        config: Optional[Iterable[type[BaseModel]] | type[BaseModel]] = ...,
+        base_config: Optional[type[Any]] = ...
+) -> Callable[[object], Component]: ...
 
-    if not hasattr(obj, "wait"):
-        obj.wait = None
 
-    return obj
+def as_component(
+        ref: Optional[object] = None,
+        *,
+        name: Optional[str] = None,
+        version: Optional[str] = None,
+        description: Optional[str] = "",
+        wire: bool = False,
+        wirings: Optional[Iterable[str]] = None,
+        requires: Optional[Iterable[Component]] = None,
+        config: Optional[Iterable[type[BaseModel]] | type[BaseModel]] = None,
+        base_config: Optional[type[Any]] = None,
+):
+    def decorator(obj: C) -> C:
+        """
+        Decorator to convert an object to a Component by adding metadata.
+
+        :param obj: The object to convert.
+        :return: The object as a Component.
+        """
+        if hasattr(obj, "__metadata__"):
+            obj_metadata = obj.__metadata__
+        else:
+            obj_metadata = {}
+
+        updated_metadata = metadata(
+            name=name or getattr(obj, "__qualname__", obj.__class__.__qualname__),
+            version=version or "0.0.0",
+            description=description or (getattr(obj, "__doc__", "") or ""),
+            wire=wire,
+            wirings=wirings,
+            requires=requires,
+            config=config,
+            base_config=base_config
+        )
+
+        updated_metadata.update(obj_metadata)
+        obj.__metadata__ = updated_metadata
+
+        if not hasattr(obj, "initialize"):
+            obj.initialize = None
+
+        if not hasattr(obj, "shutdown"):
+            obj.shutdown = None
+
+        if not hasattr(obj, "wait"):
+            obj.wait = None
+
+        return obj
+
+    return decorator if ref is None else decorator(ref)
 
 
 def component_requires(*components: Component, recursive: bool = False) -> set[Component]:
@@ -47,7 +92,14 @@ def component_requires(*components: Component, recursive: bool = False) -> set[C
     required = set()
 
     for component in components:
-        for req in component.__metadata__.get("requires", set()):
+        if "requires" not in component.__metadata__:
+            requires = set()
+        elif not component.__metadata__["requires"]:
+            requires = set()
+        else:
+            requires = component.__metadata__["requires"]
+
+        for req in requires:
             if req in required:
                 continue
             required.add(req)

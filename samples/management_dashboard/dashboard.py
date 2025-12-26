@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from threading import Thread, Lock
-from typing import Any, Optional, Set, Dict, List, Deque, Iterable
+from typing import Any, Optional, Set, Dict, List, Deque
 from urllib.parse import urlparse
 
 import pydantic
@@ -40,7 +40,9 @@ from awioc import (
     component_registration,
     initialize_components,
     shutdown_components,
-    register_plugin, reconfigure_ioc_app,
+    register_plugin,
+    reconfigure_ioc_app,
+    as_component,
 )
 from awioc.loader.module_loader import compile_component, _load_module
 
@@ -661,45 +663,66 @@ class WebSocketManager:
 
         return obj
 
-    def _get_component_config_info(self, component) -> Optional[dict]:
+    def _get_component_config_info(self, component) -> Optional[list[dict]]:
+        """Get configuration info for a component.
+
+        Returns a list of config info dicts, one for each configuration model.
+        Each dict contains: prefix, values, and schema.
+        """
         metadata = component.__metadata__
         config_model = metadata.get("config")
 
         if not config_model:
             return None
 
-        prefix = getattr(config_model, "__prefix__", None)
-        if not prefix:
-            return None
+        # Normalize to a list of config models
+        # Note: metadata() converts config to a set, so we need to handle sets too
+        if isinstance(config_model, (list, tuple, set, frozenset)):
+            config_models = list(config_model)
+        else:
+            config_models = [config_model]
 
-        # Get the merged config values from awioc (includes YAML, .env, .{context}.env)
-        values = {}
-        try:
-            provided_config = self._container.provided_config(config_model)
-            if provided_config:
-                # Use model_dump to get all values as a dict
-                values = provided_config.model_dump()
-                # Make values JSON serializable
-                values = self._make_json_serializable(values)
-        except Exception:
-            # Fallback: get default values from the model fields
+        configs = []
+        for idx, model in enumerate(config_models):
+            prefix = getattr(model, "__prefix__", None)
+            # Use model name as fallback if no prefix
+            if not prefix:
+                prefix = getattr(model, "__name__", f"config_{idx}")
+
+            # Get the merged config values from awioc (includes YAML, .env, .{context}.env)
+            values = {}
             try:
-                for field_name, field_info in config_model.model_fields.items():
-                    if field_info.default is not None and field_info.default is not PydanticUndefined:
-                        default_val = field_info.default
-                        if isinstance(default_val, pydantic.BaseModel):
-                            default_val = default_val.model_dump()
-                        values[field_name] = self._make_json_serializable(default_val)
+                provided_config = self._container.provided_config(model)
+                if provided_config:
+                    # Use model_dump to get all values as a dict
+                    values = provided_config.model_dump()
+                    # Make values JSON serializable
+                    values = self._make_json_serializable(values)
             except Exception:
-                pass
+                # Fallback: get default values from the model fields
+                try:
+                    for field_name, field_info in model.model_fields.items():
+                        if field_info.default is not None and field_info.default is not PydanticUndefined:
+                            default_val = field_info.default
+                            if isinstance(default_val, pydantic.BaseModel):
+                                default_val = default_val.model_dump()
+                            values[field_name] = self._make_json_serializable(default_val)
+                except Exception:
+                    pass
 
-        schema = self._normalize_pydantic_schema(config_model)
+            try:
+                schema = self._normalize_pydantic_schema(model)
+            except Exception:
+                # If schema generation fails, create a minimal schema
+                schema = {"type": "object", "properties": {}, "required": []}
 
-        return {
-            "prefix": prefix,
-            "values": values,
-            "schema": schema,
-        }
+            configs.append({
+                "prefix": prefix,
+                "values": values,
+                "schema": schema,
+            })
+
+        return configs if configs else None
 
     def _make_json_serializable(self, obj):
         """Recursively convert non-JSON-serializable objects to strings."""
@@ -1009,7 +1032,8 @@ class WebSocketManager:
             component_name = data.get("name")
             config_values = data.get("config")
             target_file = data.get("target_file", "yaml")  # yaml, env, or context_env
-            result = await self._save_component_config(component_name, config_values, target_file)
+            config_prefix = data.get("prefix")  # For components with multiple configs
+            result = await self._save_component_config(component_name, config_values, target_file, config_prefix)
             await websocket.send(json.dumps(result))
             # Refresh state for all clients after config change
             if result.get("type") == "success":
@@ -1325,6 +1349,7 @@ class WebSocketManager:
             component_name: str,
             config_values: Dict[str, Any],
             target_file: str = "yaml",
+            config_prefix: Optional[str] = None,
             ioc_api=get_container_api(),
             logger=get_logger()
     ) -> dict:
@@ -1334,6 +1359,7 @@ class WebSocketManager:
             component_name: Name of the component to save config for
             config_values: Dictionary of configuration values to save
             target_file: Target file type - "yaml", "env", or "context_env"
+            config_prefix: The config prefix to save to (for components with multiple configs)
         """
         if not component_name:
             return {"type": "error", "error": "Component name required"}
@@ -1355,13 +1381,30 @@ class WebSocketManager:
             if component is None:
                 return {"type": "error", "error": f"Component '{component_name}' not found"}
 
-            # Get the config model and prefix
-            config_model = component.__metadata__.get("config")
-            if not config_model:
+            # Get the config model(s) and find the matching one by prefix
+            config_models = component.__metadata__.get("config")
+            if not config_models:
                 return {"type": "error", "error": f"Component '{component_name}' has no configuration"}
 
-            if isinstance(config_model, Iterable):
-                config_model = config_model[0]  # Take the first model if multiple
+            # Normalize to a list (metadata() converts config to a set)
+            if not isinstance(config_models, (list, tuple, set, frozenset)):
+                config_models = [config_models]
+            else:
+                config_models = list(config_models)
+
+            # Find the config model matching the prefix
+            config_model = None
+            if config_prefix:
+                for model in config_models:
+                    if getattr(model, "__prefix__", None) == config_prefix:
+                        config_model = model
+                        break
+                if not config_model:
+                    return {"type": "error",
+                            "error": f"No config with prefix '{config_prefix}' found for '{component_name}'"}
+            else:
+                # Use the first config model if no prefix specified
+                config_model = config_models[0]
 
             prefix = getattr(config_model, "__prefix__", None)
             if not prefix:
@@ -2004,6 +2047,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         pass
 
 
+@as_component(
+    name="Management Dashboard",
+    version="1.3.0",
+    description="Management Dashboard App Component",
+    wire=True,
+    config=DashboardConfig,
+)
 class ManagementDashboardApp:
     """
     Management Dashboard App Component.
@@ -2012,13 +2062,6 @@ class ManagementDashboardApp:
     Supports real-time updates via WebSocket with automatic state monitoring.
     Includes real-time log streaming with filtering capabilities.
     """
-    __metadata__ = {
-        "name": "Management Dashboard",
-        "version": "1.3.0",
-        "description": "Management Dashboard App Component",
-        "wirings": ("dashboard",),
-        "config": DashboardConfig
-    }
 
     def __init__(self):
         self._server: Optional[ThreadingHTTPServer] = None

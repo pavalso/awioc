@@ -29,6 +29,7 @@ from .components.metadata import (
     AppMetadata,
     ComponentTypes,
     RegistrationInfo,
+    metadata
 )
 from .components.protocols import (
     Component,
@@ -75,6 +76,7 @@ __all__ = [
     "AppMetadata",
     "ComponentTypes",
     "RegistrationInfo",
+    "metadata",
     "as_component",
     "component_requires",
     "component_internals",

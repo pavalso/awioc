@@ -36,6 +36,7 @@ __metadata__ = {
 }
 initialize = None
 shutdown = None
+wait = None
 """)
         # Pass path without .py extension
         path_without_suffix = temp_dir / "no_suffix"
@@ -61,20 +62,6 @@ shutdown = None
 
         assert result1 is result2
 
-    def test_compile_adds_metadata_if_missing(self, temp_dir, reset_sys_modules):
-        """Test that metadata is added if missing."""
-        module_path = temp_dir / "no_metadata_test.py"
-        module_path.write_text("""
-# Module without __metadata__
-value = 42
-""")
-        result = compile_component(module_path)
-
-        assert hasattr(result, "__metadata__")
-        # Name is derived from __qualname__ or class qualname
-        assert "name" in result.__metadata__
-        assert result.__metadata__["version"] == "0.0.0"
-
     def test_compile_adds_initialize_if_missing(self, temp_dir, reset_sys_modules):
         """Test that initialize is added if missing."""
         module_path = temp_dir / "no_init.py"
@@ -98,6 +85,17 @@ __metadata__ = {"name": "no_shutdown", "version": "1.0.0", "description": ""}
 
         assert hasattr(result, "shutdown")
         assert result.shutdown is None
+
+    def test_compile_adds_wait_if_missing(self, temp_dir, reset_sys_modules):
+        """Test that wait is added if missing."""
+        module_path = temp_dir / "no_wait.py"
+        module_path.write_text("""
+__metadata__ = {"name": "no_wait", "version": "1.0.0", "description": ""}
+# No wait defined
+""")
+        result = compile_component(module_path)
+        assert hasattr(result, "wait")
+        assert result.wait is None
 
     def test_compile_preserves_module_attributes(self, temp_dir, reset_sys_modules):
         """Test that module attributes are preserved."""
@@ -149,14 +147,13 @@ VALUE = "submodule_value"
 class TestCompileComponentEdgeCases:
     """Edge case tests for compile_component."""
 
-    def test_compile_empty_file(self, temp_dir, reset_sys_modules):
+    def test_compile_empty_file_raises_error(self, temp_dir, reset_sys_modules):
         """Test compiling an empty file."""
         module_path = temp_dir / "empty_module.py"
         module_path.write_text("")
 
-        result = compile_component(module_path)
-
-        assert hasattr(result, "__metadata__")
+        with pytest.raises(RuntimeError, match="not a valid component"):
+            compile_component(module_path)
 
     def test_compile_module_with_imports(self, temp_dir, reset_sys_modules):
         """Test compiling module with standard library imports."""
@@ -370,18 +367,15 @@ class MyComponent:
         assert isinstance(result, Component)
         assert result.__metadata__["name"] == "sample_component"
 
-    def test_compile_with_reference_adds_metadata_if_missing(self, temp_dir, reset_sys_modules):
-        """Test that metadata is added to referenced object if missing."""
-        module_path = temp_dir / "no_meta_class.py"
+    def test_compile_with_reference_raises_error_if_no_metadata(self, temp_dir, reset_sys_modules):
+        """Test that missing metadata in referenced object raises error."""
+        module_path = temp_dir / "no_metadata_ref.py"
         module_path.write_text("""
-class PlainClass:
-    '''A plain class without metadata.'''
+class MyComponent:
     pass
 """)
-        result = compile_component(f"{module_path}:PlainClass")
-
-        assert hasattr(result, "__metadata__")
-        assert "name" in result.__metadata__
+        with pytest.raises(RuntimeError, match="not a valid component"):
+            compile_component(f"{module_path}:MyComponent")
 
 
 class TestCompileComponentDotReference:

@@ -73,6 +73,9 @@ async def initialize():
 
 async def shutdown():
     pass
+
+async def wait():
+    pass
 """)
     return module_path
 
@@ -93,6 +96,7 @@ __metadata__ = {
 
 initialize = None
 shutdown = None
+wait = None
 """)
     return pkg_dir
 
@@ -119,6 +123,9 @@ async def initialize():
     return True
 
 async def shutdown():
+    pass
+
+async def wait():
     pass
 """)
     return module_path

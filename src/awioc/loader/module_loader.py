@@ -4,10 +4,9 @@ import logging
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Union
+from typing import Union, cast, Callable
 
 from ..components.protocols import Component
-from ..components.registry import as_component
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +67,7 @@ def _resolve_reference(module: ModuleType, reference: str) -> object:
         attr_name = reference[:-2]
         obj = _get_nested_attr(module, attr_name)
         if callable(obj):
+            obj = cast(Callable, obj)
             logger.debug("Calling %s() to get component", attr_name)
             return obj()
         raise TypeError(f"'{attr_name}' is not callable")
@@ -197,4 +197,15 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
         component_obj = module
         logger.debug("Component compiled successfully: %s", path)
 
-    return as_component(component_obj)
+    if getattr(component_obj, "__metadata__", None) is None:
+        raise RuntimeError(f"The loaded object from '{component_ref}' is not a valid component. ")
+
+    # Ensure the returned object has, at least, the Optionals of Component protocol
+    if not hasattr(component_obj, "initialize"):
+        component_obj.initialize = None
+    if not hasattr(component_obj, "shutdown"):
+        component_obj.shutdown = None
+    if not hasattr(component_obj, "wait"):
+        component_obj.wait = None
+
+    return cast(Component, component_obj)
