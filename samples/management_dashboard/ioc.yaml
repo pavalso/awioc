@@ -1,5 +1,5 @@
 components:
-  app: __init__
+  app: :ManagementDashboardApp()
   libraries: { }
   plugins:
     - plugins\sample_plugin_a.py

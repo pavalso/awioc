@@ -1241,34 +1241,97 @@
         header.style.display = 'flex';
         countEl.textContent = discoveredPlugins.length;
 
-        container.innerHTML = discoveredPlugins.map(plugin => `
-            <div class="component-card discovered" style="border-left: 3px solid #ff9800;">
-                <div class="component-card-header">
-                    <div>
-                        <div class="component-card-name">${escapeHtml(plugin.name)}</div>
-                        <div class="component-card-version" style="color:#ff9800;">
-                            ${plugin.is_directory ? '📁 Directory' : '📄 File'}
+        container.innerHTML = discoveredPlugins.map(plugin => {
+            const classes = plugin.component_classes || [];
+            const hasModuleMeta = plugin.has_module_metadata || false;
+            const hasClasses = classes.length > 0;
+
+            // Build registration options
+            let registrationOptionsHtml = '';
+
+            if (hasClasses || hasModuleMeta) {
+                // Show dropdown for multiple registration options
+                registrationOptionsHtml = `
+                    <div style="margin-top:8px;">
+                        <div style="color:#888;font-size:0.7em;margin-bottom:4px;text-transform:uppercase;">Register as:</div>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            ${hasModuleMeta ? `
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <button class="btn btn-enable" style="font-size:0.72em;padding:4px 8px;flex:1;"
+                                            onclick="registerDiscoveredPlugin('${escapeJs(plugin.path)}', null)">
+                                        📦 Module (legacy)
+                                    </button>
+                                </div>
+                            ` : ''}
+                            ${classes.map(cls => `
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <button class="btn btn-enable" style="font-size:0.72em;padding:4px 8px;flex:1;"
+                                            onclick="registerDiscoveredPlugin('${escapeJs(plugin.path)}', '${escapeJs(cls.class_name)}')">
+                                        🏗️ ${escapeHtml(cls.class_name)}${cls.metadata_name ? ` (${escapeHtml(cls.metadata_name)})` : ''}
+                                    </button>
+                                </div>
+                            `).join('')}
                         </div>
                     </div>
-                    <span class="component-card-status" style="background:#ff9800;color:#000;">Not Registered</span>
+                `;
+            } else {
+                // No classes or module metadata found - show warning
+                registrationOptionsHtml = `
+                    <div style="margin-top:8px;">
+                        <div style="color:#ff9800;font-size:0.7em;margin-bottom:6px;padding:6px;background:rgba(255,152,0,0.1);border-radius:4px;">
+                            ⚠️ No component classes detected. The module may have import errors or use a non-standard pattern.
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-secondary" style="font-size:0.75em;padding:4px 10px;"
+                                    onclick="registerDiscoveredPlugin('${escapeJs(plugin.path)}', null)">Try Register Module</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Build component classes info display
+            let classesInfoHtml = '';
+            if (hasClasses) {
+                classesInfoHtml = `
+                    <div style="margin-top:4px;color:#00d9ff;font-size:0.7em;">
+                        ${classes.length} component class${classes.length > 1 ? 'es' : ''} found
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="component-card discovered" style="border-left: 3px solid #ff9800;">
+                    <div class="component-card-header">
+                        <div>
+                            <div class="component-card-name">${escapeHtml(plugin.name)}</div>
+                            <div class="component-card-version" style="color:#ff9800;">
+                                ${plugin.is_directory ? '📁 Directory' : '📄 File'}
+                            </div>
+                            ${classesInfoHtml}
+                        </div>
+                        <span class="component-card-status" style="background:#ff9800;color:#000;">Not Registered</span>
+                    </div>
+                    ${registrationOptionsHtml}
+                    <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);">
+                        <button class="btn btn-danger" style="font-size:0.7em;padding:3px 8px;"
+                                onclick="removeDiscoveredPlugin('${escapeJs(plugin.path)}', '${escapeJs(plugin.name)}')">Remove from disk</button>
+                    </div>
                 </div>
-                <div style="margin-top:8px;display:flex;gap:6px;">
-                    <button class="btn btn-enable" style="font-size:0.75em;padding:4px 10px;"
-                            onclick="registerDiscoveredPlugin('${escapeJs(plugin.path)}')">Register</button>
-                    <button class="btn btn-danger" style="font-size:0.75em;padding:4px 10px;"
-                            onclick="removeDiscoveredPlugin('${escapeJs(plugin.path)}', '${escapeJs(plugin.name)}')">Remove</button>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
-    function registerDiscoveredPlugin(path) {
+    function registerDiscoveredPlugin(path, classReference) {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
             showToast('Not connected', 'error');
             return;
         }
-        ws.send(JSON.stringify({ action: 'register_plugin', path: path }));
-        showToast('Registering plugin...', 'info');
+        const message = { action: 'register_plugin', path: path };
+        if (classReference) {
+            message.class_reference = classReference;
+        }
+        ws.send(JSON.stringify(message));
+        showToast(classReference ? `Registering ${classReference}...` : 'Registering plugin...', 'info');
     }
 
     function removeDiscoveredPlugin(path, name) {

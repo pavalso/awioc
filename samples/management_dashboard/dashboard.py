@@ -13,6 +13,7 @@ import asyncio
 import base64
 import json
 import logging
+import sys
 import time
 import warnings
 from collections import deque
@@ -41,7 +42,213 @@ from awioc import (
     shutdown_components,
     register_plugin, reconfigure_ioc_app,
 )
-from awioc.loader.module_loader import compile_component
+from awioc.loader.module_loader import compile_component, _load_module
+
+
+def _get_component_file(component) -> Optional[str]:
+    """
+    Get the file path for a component, handling both module-based and class-based components.
+
+    For modules: returns module.__file__
+    For class instances: returns the module file where the class is defined
+    """
+    # Try direct __file__ attribute (module-based components)
+    if hasattr(component, '__file__'):
+        return component.__file__
+
+    # For class-based components (instances), get the class's module
+    component_class = type(component)
+    module_name = getattr(component_class, '__module__', None)
+
+    if module_name and module_name in sys.modules:
+        module = sys.modules[module_name]
+        return getattr(module, '__file__', None)
+
+    return None
+
+
+def _scan_module_for_components(module_path: Path, logger=None) -> list[dict]:
+    """
+    Scan a module for classes that have __metadata__ attribute.
+
+    Uses runtime inspection to correctly find classes that may be imported
+    from submodules (e.g., HttpServerApp imported in __init__.py from http_server.py).
+
+    Returns a list of dicts with class info:
+    - class_name: the class name
+    - metadata_name: name from __metadata__ if available
+    - reference: the reference string to use for registration
+    """
+    import inspect
+    import logging
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    components = []
+
+    try:
+        # Load the module at runtime to inspect it
+        logger.debug(f"Loading module for inspection: {module_path}")
+        module = _load_module(module_path)
+        logger.debug(f"Module loaded successfully: {module}")
+
+        # Also check __all__ if defined to prioritize exported names
+        all_names = getattr(module, '__all__', None)
+        names_to_check = all_names if all_names else dir(module)
+
+        # Iterate over all attributes in the module
+        for name in names_to_check:
+            if name.startswith('_'):
+                continue
+
+            try:
+                obj = getattr(module, name)
+            except Exception as e:
+                logger.debug(f"Could not get attribute {name}: {e}")
+                continue
+
+            # Check if it's a class with __metadata__
+            if inspect.isclass(obj) and hasattr(obj, '__metadata__'):
+                metadata = obj.__metadata__
+                if isinstance(metadata, dict):
+                    metadata_name = metadata.get("name")
+                    logger.debug(f"Found component class: {name} ({metadata_name})")
+                    components.append({
+                        "class_name": name,
+                        "metadata_name": metadata_name,
+                        "reference": f":{name}()",
+                    })
+
+        # If no components found via __all__, also scan dir() as fallback
+        if not components and all_names:
+            for name in dir(module):
+                if name.startswith('_') or name in all_names:
+                    continue
+                try:
+                    obj = getattr(module, name)
+                    if inspect.isclass(obj) and hasattr(obj, '__metadata__'):
+                        metadata = obj.__metadata__
+                        if isinstance(metadata, dict):
+                            metadata_name = metadata.get("name")
+                            logger.debug(f"Found component class (fallback): {name} ({metadata_name})")
+                            components.append({
+                                "class_name": name,
+                                "metadata_name": metadata_name,
+                                "reference": f":{name}()",
+                            })
+                except Exception:
+                    continue
+
+    except Exception as e:
+        # If loading fails, fall back to AST parsing for basic detection
+        logger.debug(f"Runtime inspection failed for {module_path}: {e}, falling back to AST")
+        components = _scan_module_for_components_ast(module_path)
+
+    return components
+
+
+def _scan_module_for_components_ast(module_path: Path) -> list[dict]:
+    """
+    Fallback AST-based scanning for when runtime loading fails.
+    Only detects classes defined directly in the file, not imported ones.
+    """
+    import ast
+
+    components = []
+
+    try:
+        if module_path.is_dir():
+            init_file = module_path / "__init__.py"
+            if not init_file.exists():
+                return components
+            source_file = init_file
+        else:
+            source_file = module_path
+
+        source = source_file.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                has_metadata = False
+                metadata_name = None
+
+                for item in node.body:
+                    if isinstance(item, ast.Assign):
+                        for target in item.targets:
+                            if isinstance(target, ast.Name) and target.id == "__metadata__":
+                                has_metadata = True
+                                if isinstance(item.value, ast.Dict):
+                                    for key, value in zip(item.value.keys, item.value.values):
+                                        if isinstance(key, ast.Constant) and key.value == "name":
+                                            if isinstance(value, ast.Constant):
+                                                metadata_name = value.value
+                                break
+
+                if has_metadata:
+                    components.append({
+                        "class_name": node.name,
+                        "metadata_name": metadata_name,
+                        "reference": f":{node.name}()",
+                    })
+
+    except Exception:
+        pass
+
+    return components
+
+
+def _check_module_has_metadata(module_path: Path) -> bool:
+    """Check if a module has module-level __metadata__."""
+    try:
+        # Try runtime inspection first
+        module = _load_module(module_path)
+        # Check for module-level __metadata__ (not on a class)
+        if hasattr(module, '__metadata__'):
+            import inspect
+            # Make sure it's not a class attribute we're seeing
+            metadata = getattr(module, '__metadata__')
+            # If __metadata__ is directly on the module (not inherited from a class)
+            if isinstance(metadata, dict):
+                # Check if it's defined at module level by seeing if any class owns it
+                for name in dir(module):
+                    obj = getattr(module, name, None)
+                    if inspect.isclass(obj) and hasattr(obj, '__metadata__'):
+                        if obj.__metadata__ is metadata:
+                            return False  # It belongs to a class
+                return True
+        return False
+    except Exception:
+        # Fallback to AST parsing
+        return _check_module_has_metadata_ast(module_path)
+
+
+def _check_module_has_metadata_ast(module_path: Path) -> bool:
+    """Fallback AST-based check for module-level __metadata__."""
+    import ast
+
+    try:
+        if module_path.is_dir():
+            init_file = module_path / "__init__.py"
+            if not init_file.exists():
+                return False
+            source_file = init_file
+        else:
+            source_file = module_path
+
+        source = source_file.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__metadata__":
+                        return True
+    except Exception:
+        pass
+
+    return False
 
 
 class DashboardConfig(pydantic.BaseModel):
@@ -778,7 +985,8 @@ class WebSocketManager:
 
         elif action == "register_plugin":
             plugin_path = data.get("path")
-            result = await self._register_plugin_from_path(plugin_path)
+            class_reference = data.get("class_reference")  # Optional: e.g., "MyClass" or ":MyClass()"
+            result = await self._register_plugin_from_path(plugin_path, class_reference=class_reference)
             await websocket.send(json.dumps(result))
             # Refresh state for all clients after registration
             if result.get("type") == "success":
@@ -916,6 +1124,7 @@ class WebSocketManager:
     async def _register_plugin_from_path(
             self,
             plugin_path: str,
+            class_reference: Optional[str] = None,
             auto_initialize: bool = False,
             logger=get_logger()
     ) -> dict:
@@ -923,6 +1132,9 @@ class WebSocketManager:
 
         Args:
             plugin_path: Path to the plugin file or directory
+            class_reference: Optional class reference (e.g., ":MyClass()" or "MyClass")
+                           If provided, loads a specific class from the module.
+                           If None, tries to auto-detect a component class, or loads the module.
             auto_initialize: If True, initialize the plugin after registration (default: False)
         """
         if not plugin_path:
@@ -933,8 +1145,32 @@ class WebSocketManager:
             if not path.exists():
                 return {"type": "error", "error": f"File not found: {plugin_path}"}
 
+            # Build the component reference
+            if class_reference:
+                # Normalize the reference format
+                ref = class_reference.strip()
+                if not ref.startswith(":"):
+                    ref = f":{ref}"
+                if not ref.endswith("()"):
+                    ref = f"{ref}()"
+                component_ref = f"{path}:{ref[1:]}"  # Remove leading : for compile_component
+            else:
+                # No class reference provided - try to auto-detect
+                # First, scan for component classes
+                component_classes = _scan_module_for_components(path, logger=logger)
+
+                if component_classes:
+                    # Use the first component class found
+                    first_class = component_classes[0]
+                    class_name = first_class["class_name"]
+                    logger.info(f"Auto-detected component class: {class_name}")
+                    component_ref = f"{path}:{class_name}()"
+                else:
+                    # No classes found, try loading the module directly
+                    component_ref = path
+
             # Load the component from the file
-            plugin = compile_component(path)
+            plugin = compile_component(component_ref)
             plugin_name = plugin.__metadata__.get("name", "unknown")
 
             # Check if already registered
@@ -958,7 +1194,11 @@ class WebSocketManager:
 
             # Update the log buffer with the new component info
             if self._log_buffer:
-                module_name = plugin.__name__
+                # Handle both module-based and class-based components
+                if hasattr(plugin, '__name__'):
+                    module_name = plugin.__name__
+                else:
+                    module_name = type(plugin).__name__
                 display_name = plugin_name
                 internals = component_internals(plugin)
                 comp_type = internals.type.value
@@ -1294,7 +1534,11 @@ class WebSocketManager:
 
             # Remove from log buffer component info
             if self._log_buffer:
-                module_name = plugin.__name__
+                # Handle both module-based and class-based components
+                if hasattr(plugin, '__name__'):
+                    module_name = plugin.__name__
+                else:
+                    module_name = type(plugin).__name__
                 with self._log_buffer._lock:
                     self._log_buffer._component_info.pop(module_name, None)
 
@@ -1339,26 +1583,70 @@ class WebSocketManager:
                     # Directory plugin with __init__.py
                     plugin_paths_on_disk.add(item.resolve())
 
-            # Get currently registered plugins and their paths
+            # Get currently registered plugins and their paths AND names
             registered_plugins = self._container.provided_plugins()
             registered_paths: Set[Path] = set()
+            registered_names: Set[str] = set()
 
             for plugin in registered_plugins:
-                plugin_file = getattr(plugin, "__file__", None)
+                # Track registered plugin names
+                plugin_meta_name = plugin.__metadata__.get("name", "")
+                if plugin_meta_name:
+                    registered_names.add(plugin_meta_name)
+
+                plugin_file = _get_component_file(plugin)
                 if plugin_file:
                     plugin_path = Path(plugin_file).resolve()
                     registered_paths.add(plugin_path)
+                    # Also add parent directory for any .py file in a package
+                    # This handles class-based components in submodules (e.g., http_server/http_server.py)
+                    if plugin_path.suffix == '.py':
+                        parent = plugin_path.parent
+                        registered_paths.add(parent)
+                        # Also check if parent has __init__.py (is a package)
+                        if (parent / '__init__.py').exists():
+                            registered_paths.add(parent)
 
             # Update discovered plugins (on disk but not registered)
             self._discovered_plugins.clear()
             for path in plugin_paths_on_disk:
-                if path not in registered_paths:
+                # Check if already registered by path
+                is_registered = path in registered_paths
+                if not is_registered and path.is_dir():
+                    # For directory plugins, also check if __init__.py is registered
+                    init_path = path / "__init__.py"
+                    is_registered = init_path in registered_paths
+
+                if not is_registered:
                     # Extract basic info from the file
                     plugin_name = path.stem if path.is_file() else path.name
+
+                    # Scan for component classes (pass logger for debugging)
+                    logger.debug(f"Scanning plugin for components: {path}")
+                    component_classes = _scan_module_for_components(path, logger=logger)
+                    logger.debug(f"Found {len(component_classes)} component classes in {path}")
+
+                    # Filter out component classes that are already registered
+                    unregistered_classes = [
+                        cls for cls in component_classes
+                        if cls.get("metadata_name") not in registered_names
+                    ]
+
+                    # Check for module-level __metadata__
+                    has_module_metadata = _check_module_has_metadata(path)
+                    logger.debug(f"Module-level metadata: {has_module_metadata}")
+
+                    # Skip if all component classes are already registered
+                    if not unregistered_classes and not has_module_metadata:
+                        logger.debug(f"All components in {path} already registered, skipping")
+                        continue
+
                     self._discovered_plugins[str(path)] = {
                         "name": plugin_name,
                         "path": str(path),
                         "is_directory": path.is_dir(),
+                        "component_classes": unregistered_classes,
+                        "has_module_metadata": has_module_metadata,
                     }
 
             discovered_count = len(self._discovered_plugins)
@@ -1443,21 +1731,36 @@ class WebSocketManager:
             plugin_paths = []
 
             for plugin in plugins:
-                # Get the plugin's file path from its __file__ attribute
-                plugin_file = getattr(plugin, "__file__", None)
+                # Get the plugin's file path using helper function
+                plugin_file = _get_component_file(plugin)
+                plugin_name = plugin.__metadata__.get("name", "unknown")
 
                 if plugin_file:
                     plugin_path = Path(plugin_file)
+
+                    # For class-based components, we need to include the class reference
+                    # Check if this is an instance (class-based) or module
+                    is_class_based = not hasattr(plugin, '__file__')
+
                     # Try to make path relative to config directory
                     try:
                         relative_path = plugin_path.relative_to(config_dir)
-                        plugin_paths.append(str(relative_path))
+                        path_str = str(relative_path)
                     except ValueError:
                         # Path is not relative to config dir, use absolute
-                        plugin_paths.append(str(plugin_path))
+                        path_str = str(plugin_path)
+
+                    # For directory-based plugins, use parent directory
+                    if plugin_path.name == "__init__.py":
+                        path_str = str(Path(path_str).parent)
+
+                    # Add class reference for class-based components
+                    if is_class_based:
+                        class_name = type(plugin).__name__
+                        path_str = f"{path_str}:{class_name}()"
+
+                    plugin_paths.append(path_str)
                 else:
-                    # Fallback: use plugin name
-                    plugin_name = plugin.__metadata__.get("name", "unknown")
                     logger.warning(f"Plugin '{plugin_name}' has no path, skipping in save")
 
             # Update the components.plugins section
@@ -1709,6 +2012,13 @@ class ManagementDashboardApp:
     Supports real-time updates via WebSocket with automatic state monitoring.
     Includes real-time log streaming with filtering capabilities.
     """
+    __metadata__ = {
+        "name": "Management Dashboard",
+        "version": "1.3.0",
+        "description": "Management Dashboard App Component",
+        "wirings": ("dashboard",),
+        "config": DashboardConfig
+    }
 
     def __init__(self):
         self._server: Optional[ThreadingHTTPServer] = None
