@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 from .components.registry import component_internals
 from .components.protocols import Component
 from .config.models import IOCBaseConfig
-from .config.setup import setup_logging
 from .container import AppContainer, ContainerInterface
 from .di.wiring import wire, inject_dependencies
 from .loader.module_loader import compile_component
@@ -84,7 +83,7 @@ def compile_ioc_app(  # TODO: add test coverage
         try:
             plugin = compile_component(plugin_name)
             plugins.add(plugin)
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             logger.warning("Plugin not found, skipping: %s", plugin_name)
         except Exception as e:
             logger.error("Failed to compile plugin '%s': %s", plugin_name, e)
@@ -135,7 +134,6 @@ def reconfigure_ioc_app(
     logger.debug("Loaded application configuration: %s", config)
 
     api_container.set_config(config)
-    api_container.set_logger(setup_logging())
 
     wire(api_container, components=components)
 

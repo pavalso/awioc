@@ -4,11 +4,75 @@ import logging
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Union, cast, Callable
+from typing import Union, cast, Callable, Optional
 
 from ..components.protocols import Component
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_pot_reference(pot_ref: str) -> Optional[tuple[Path, Optional[str]]]:
+    """Resolve a @pot-name/component reference to a file path.
+
+    Handles references like:
+    - @my-pot/component-name
+    - @my-pot/component-name:ClassName()
+
+    Args:
+        pot_ref: Reference in format @pot-name/component-name[:class]
+
+    Returns:
+        Tuple of (component_path, class_reference) or None if not a pot reference.
+    """
+    if not pot_ref.startswith("@"):
+        return None
+
+    # Import pot utilities here to avoid circular imports
+    from ..commands.pot import get_pot_path, load_pot_manifest
+
+    # Parse @pot-name/component-name[:class]
+    ref = pot_ref[1:]  # Remove @
+
+    # Normalize path separators (handle Windows backslashes)
+    ref = ref.replace("\\", "/")
+
+    # Check for class reference
+    class_ref = None
+    if ":" in ref:
+        ref, class_ref = ref.rsplit(":", 1)
+
+    if "/" not in ref:
+        logger.error(f"Invalid pot reference: {pot_ref} (expected @pot-name/component)")
+        return None
+
+    pot_name, component_name = ref.split("/", 1)
+    pot_path = get_pot_path(pot_name)
+
+    if not pot_path.exists():
+        raise FileNotFoundError(f"Pot not found: {pot_name}")
+
+    # Load manifest to find component
+    manifest = load_pot_manifest(pot_path)
+    components = manifest.get("components", {})
+
+    if component_name not in components:
+        available = list(components.keys())
+        raise FileNotFoundError(
+            f"Component '{component_name}' not found in pot '{pot_name}'. "
+            f"Available: {available}"
+        )
+
+    component_info = components[component_name]
+    component_file = pot_path / component_info.get("path", component_name)
+
+    if not component_file.exists():
+        raise FileNotFoundError(f"Component file not found: {component_file}")
+
+    # If no explicit class reference but manifest has class_name, use it
+    if not class_ref and component_info.get("class_name"):
+        class_ref = f"{component_info['class_name']}()"
+
+    return component_file, class_ref
 
 
 def _parse_component_reference(component_ref: str) -> tuple[Path, str | None]:
@@ -170,6 +234,8 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
     - "path/to/module:MyClass" - load MyClass from module
     - "path/to/module:obj.attr" - load nested attribute from module
     - "path/to/module:factory()" - call factory() to get component
+    - "@pot-name/component" - load from pot repository
+    - "@pot-name/component:ClassName()" - load specific class from pot
 
     :param component_ref: Path or reference string to the component.
     :return: The loaded component.
@@ -182,8 +248,16 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
 
     logger.debug("Compiling component from reference: %s", component_ref)
 
-    # Parse the reference
-    path, reference = _parse_component_reference(component_ref)
+    # Check for pot reference (@pot-name/component)
+    if component_ref.startswith("@"):
+        pot_result = _resolve_pot_reference(component_ref)
+        if pot_result is None:
+            raise ValueError(f"Invalid pot reference: {component_ref}")
+        path, reference = pot_result
+        logger.debug("Resolved pot reference to: %s (class: %s)", path, reference)
+    else:
+        # Parse the reference
+        path, reference = _parse_component_reference(component_ref)
 
     # Load the module
     module = _load_module(path)
@@ -199,6 +273,11 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
 
     if getattr(component_obj, "__metadata__", None) is None:
         raise RuntimeError(f"The loaded object from '{component_ref}' is not a valid component. ")
+
+    # Store the original source reference for serialization
+    # For pot references, keep the @pot/component format
+    # For file paths, store the original reference string
+    component_obj.__metadata__["_source_ref"] = component_ref
 
     # Ensure the returned object has, at least, the Optionals of Component protocol
     if not hasattr(component_obj, "initialize"):

@@ -50,6 +50,7 @@ class Internals:
     ioc_config: Optional[type["Settings"]] = None
     type: ComponentTypes = ComponentTypes.COMPONENT
     registration: Optional[RegistrationInfo] = None
+    source_ref: Optional[str] = None  # Original reference used to load component (e.g., @pot/name)
 
 
 class ComponentMetadata(TypedDict):

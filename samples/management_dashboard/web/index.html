@@ -866,6 +866,22 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Pot Browser Section -->
+            <div class="section-header" onclick="togglePotBrowser()" style="margin-top: 20px; cursor: pointer;">
+                <h3 style="color:#9c27b0;">Pot Browser</h3>
+                <span class="section-count" id="potCount" style="background:#9c27b0;">0</span>
+            </div>
+            <div id="potBrowserSection" style="display:none;">
+                <div class="pot-browser-toolbar" style="display:flex; gap:8px; margin-bottom:10px;">
+                    <button class="btn btn-secondary" onclick="refreshPots()" title="Refresh pot list">
+                        Refresh
+                    </button>
+                </div>
+                <div class="component-list" id="potsList"></div>
+                <div class="component-list" id="potComponentsList"
+                     style="display:none; margin-top:10px; padding:10px; background:#1a1a2e; border-radius:8px;"></div>
+            </div>
         </div>
     </div>
 
@@ -1076,6 +1092,8 @@
                 updateConfigTargetDropdown();
                 renderAllSections();
                 renderDiscoveredPlugins();
+                // Refresh pot components list if pot browser is open
+                refreshSelectedPotComponents();
                 // Auto-select app if nothing selected
                 if (!selectedComponent) {
                     const apps = currentComponents.filter(c => c.type === 'app');
@@ -1110,6 +1128,15 @@
                 renderLogs();
                 break;
             case 'success':
+                // Handle pot browser responses
+                if (data.pots !== undefined) {
+                    handlePotsResponse(data);
+                    break;
+                }
+                if (data.pot_name !== undefined && data.components !== undefined) {
+                    handlePotComponentsResponse(data);
+                    break;
+                }
                 showToast(data.message, 'success');
                 // After successful save, update original values with the saved values
                 // so subsequent saves only track new changes
@@ -2751,6 +2778,137 @@
             ws.send(JSON.stringify({
                 action: 'sync_plugins'
             }));
+        }
+    }
+
+    // ==================== Pot Browser ====================
+    let potBrowserVisible = false;
+    let currentPots = [];
+    let selectedPotName = null;
+
+    function togglePotBrowser() {
+        potBrowserVisible = !potBrowserVisible;
+        const section = document.getElementById('potBrowserSection');
+        section.style.display = potBrowserVisible ? 'block' : 'none';
+        if (potBrowserVisible) {
+            refreshPots();
+        }
+    }
+
+    function refreshPots() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'list_pots' }));
+            showToast('Refreshing pots...', 'info');
+        }
+    }
+
+    function handlePotsResponse(data) {
+        if (data.type === 'error') {
+            showToast(data.error, 'error');
+            return;
+        }
+        currentPots = data.pots || [];
+        document.getElementById('potCount').textContent = currentPots.length;
+        renderPotsList();
+    }
+
+    function renderPotsList() {
+        const container = document.getElementById('potsList');
+        if (currentPots.length === 0) {
+            container.innerHTML = '<div style="color:#666; padding:10px; text-align:center;">No pots found.<br><small>Use <code>awioc pot init</code> to create one.</small></div>';
+            return;
+        }
+
+        container.innerHTML = currentPots.map(pot => `
+            <div class="component-card ${selectedPotName === pot.name ? 'selected' : ''}"
+                 onclick="selectPot('${escapeJs(pot.name)}')"
+                 style="cursor:pointer; border-left: 3px solid #9c27b0;">
+                <div class="component-card-header">
+                    <div class="component-card-name" style="color:#9c27b0;">
+                        ${escapeHtml(pot.name)}
+                    </div>
+                    <div class="component-card-version">v${escapeHtml(pot.version)}</div>
+                </div>
+                <div class="component-card-meta">
+                    ${pot.component_count} component(s)
+                </div>
+                ${pot.description ? `<div class="component-card-desc">${escapeHtml(pot.description)}</div>` : ''}
+            </div>
+        `).join('');
+    }
+
+    function selectPot(potName) {
+        selectedPotName = potName;
+        renderPotsList();
+        // Fetch components for this pot
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'list_pot_components', pot_name: potName }));
+        }
+    }
+
+    function handlePotComponentsResponse(data) {
+        if (data.type === 'error') {
+            showToast(data.error, 'error');
+            return;
+        }
+
+        const container = document.getElementById('potComponentsList');
+        container.style.display = 'block';
+
+        const components = data.components || [];
+        if (components.length === 0) {
+            container.innerHTML = `
+                <div style="color:#666; text-align:center;">
+                    <strong>${escapeHtml(data.pot_name)}</strong> has no components.<br>
+                    <small>Use <code>awioc pot push</code> to add components.</small>
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = `
+            <div style="margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333;">
+                <strong style="color:#9c27b0;">${escapeHtml(data.pot_name)}</strong>
+                <span style="color:#666; font-size:0.85em;"> v${escapeHtml(data.pot_version)}</span>
+                <div style="color:#888; font-size:0.8em; margin-top:4px;">${components.length} component(s)</div>
+            </div>
+            ${components.map(comp => `
+                <div class="component-card" style="margin-bottom:8px; ${comp.is_registered ? 'opacity:0.6;' : ''}">
+                    <div class="component-card-header">
+                        <div class="component-card-name">${escapeHtml(comp.name)}</div>
+                        <div class="component-card-version">v${escapeHtml(comp.version)}</div>
+                    </div>
+                    ${comp.description ? `<div class="component-card-desc">${escapeHtml(comp.description)}</div>` : ''}
+                    <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+                        <code style="font-size:0.75em; color:#9c27b0; background:#2a2a3e; padding:2px 6px; border-radius:4px;">
+                            ${escapeHtml(comp.pot_ref)}
+                        </code>
+                        ${comp.is_registered
+                            ? '<span style="color:#4caf50; font-size:0.8em;">Already registered</span>'
+                            : `<button class="btn btn-enable" onclick="registerPotComponent('${escapeJs(data.pot_name)}', '${escapeJs(comp.id)}')" style="font-size:0.8em; padding:4px 8px;">
+                                Register
+                               </button>`
+                        }
+                    </div>
+                </div>
+            `).join('')}
+        `;
+    }
+
+    function registerPotComponent(potName, componentId) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'register_pot_component',
+                pot_name: potName,
+                component_name: componentId
+            }));
+            showToast(`Registering @${potName}/${componentId}...`, 'info');
+        }
+    }
+
+    // Refresh pot components after state changes (to update "Already registered" status)
+    function refreshSelectedPotComponents() {
+        if (selectedPotName && potBrowserVisible && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'list_pot_components', pot_name: selectedPotName }));
         }
     }
 

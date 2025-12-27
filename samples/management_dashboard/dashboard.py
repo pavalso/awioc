@@ -1066,6 +1066,26 @@ class WebSocketManager:
             if result.get("type") == "success":
                 await self.broadcast_state()
 
+        # Pot management actions
+        elif action == "list_pots":
+            result = await self._list_pots()
+            await websocket.send(json.dumps(result))
+
+        elif action == "list_pot_components":
+            pot_name = data.get("pot_name")
+            result = await self._list_pot_components(pot_name)
+            await websocket.send(json.dumps(result))
+
+        elif action == "register_pot_component":
+            pot_name = data.get("pot_name")
+            component_name = data.get("component_name")
+            # Build the pot reference
+            pot_ref = f"@{pot_name}/{component_name}"
+            result = await self._register_plugin_from_path(pot_ref)
+            await websocket.send(json.dumps(result))
+            if result.get("type") == "success":
+                await self.broadcast_state()
+
     def _run_in_main_loop(self, coro) -> Any:
         """Run a coroutine in the main event loop and wait for result."""
         if self._main_loop is None:
@@ -1774,9 +1794,18 @@ class WebSocketManager:
             plugin_paths = []
 
             for plugin in plugins:
-                # Get the plugin's file path using helper function
-                plugin_file = _get_component_file(plugin)
                 plugin_name = plugin.__metadata__.get("name", "unknown")
+
+                # Check if plugin has a source reference (e.g., pot reference)
+                source_ref = plugin.__metadata__.get("_source_ref")
+
+                # If source is a pot reference (@pot/component), use it directly
+                if source_ref and source_ref.startswith("@"):
+                    plugin_paths.append(source_ref)
+                    continue
+
+                # Otherwise, build path from file location
+                plugin_file = _get_component_file(plugin)
 
                 if plugin_file:
                     plugin_path = Path(plugin_file)
@@ -1823,6 +1852,85 @@ class WebSocketManager:
             }
         except Exception as e:
             logger.error("Error saving plugins to config", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _list_pots(self, logger=get_logger()) -> dict:
+        """List all available pots and their metadata."""
+        try:
+            from awioc.commands.pot import get_pot_dir, load_pot_manifest
+
+            pot_dir = get_pot_dir()
+
+            if not pot_dir.exists():
+                return {"type": "success", "pots": []}
+
+            pots = []
+            for pot_path in sorted(pot_dir.iterdir()):
+                if not pot_path.is_dir():
+                    continue
+
+                manifest = load_pot_manifest(pot_path)
+                component_count = len(manifest.get("components", {}))
+
+                pots.append({
+                    "name": pot_path.name,
+                    "version": manifest.get("version", "?"),
+                    "description": manifest.get("description", ""),
+                    "component_count": component_count,
+                })
+
+            return {"type": "success", "pots": pots}
+        except Exception as e:
+            logger.error("Error listing pots", exc_info=e)
+            return {"type": "error", "error": str(e)}
+
+    @inject
+    async def _list_pot_components(self, pot_name: str, logger=get_logger()) -> dict:
+        """List components in a specific pot."""
+        try:
+            if not pot_name:
+                return {"type": "error", "error": "Pot name required"}
+
+            from awioc.commands.pot import get_pot_path, load_pot_manifest
+
+            pot_path = get_pot_path(pot_name)
+
+            if not pot_path.exists():
+                return {"type": "error", "error": f"Pot not found: {pot_name}"}
+
+            manifest = load_pot_manifest(pot_path)
+            components_data = manifest.get("components", {})
+
+            # Get currently registered plugins to mark which ones are already loaded
+            registered_refs = set()
+            for plugin in self._container.provided_plugins():
+                source_ref = plugin.__metadata__.get("_source_ref", "")
+                if source_ref.startswith("@"):
+                    registered_refs.add(source_ref)
+
+            components = []
+            for comp_id, comp_info in sorted(components_data.items()):
+                pot_ref = f"@{pot_name}/{comp_id}"
+                components.append({
+                    "id": comp_id,
+                    "name": comp_info.get("name", comp_id),
+                    "version": comp_info.get("version", "?"),
+                    "description": comp_info.get("description", ""),
+                    "class_name": comp_info.get("class_name"),
+                    "pot_ref": pot_ref,
+                    "is_registered": pot_ref in registered_refs,
+                })
+
+            return {
+                "type": "success",
+                "pot_name": pot_name,
+                "pot_version": manifest.get("version", "?"),
+                "pot_description": manifest.get("description", ""),
+                "components": components,
+            }
+        except Exception as e:
+            logger.error(f"Error listing components in pot '{pot_name}'", exc_info=e)
             return {"type": "error", "error": str(e)}
 
 
