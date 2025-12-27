@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pydantic
 import pytest
+import yaml
 
 from src.awioc.bootstrap import reconfigure_ioc_app
 from src.awioc.components.events import clear_handlers
@@ -30,7 +31,19 @@ from src.awioc.components.registry import (
 from src.awioc.config.models import IOCBaseConfig
 from src.awioc.container import AppContainer, ContainerInterface
 from src.awioc.di.wiring import wire, inject_dependencies
+from src.awioc.loader.manifest import AWIOC_DIR, MANIFEST_FILENAME
 from src.awioc.loader.module_loader import compile_component
+
+
+def create_manifest(directory, components):
+    """Helper to create .awioc/manifest.yaml in a directory."""
+    awioc_dir = directory / AWIOC_DIR
+    awioc_dir.mkdir(exist_ok=True)
+    manifest = {
+        "manifest_version": "1.0",
+        "components": components,
+    }
+    (awioc_dir / MANIFEST_FILENAME).write_text(yaml.dump(manifest))
 
 
 class TestClassBasedComponentLoading:
@@ -41,13 +54,6 @@ class TestClassBasedComponentLoading:
         module_path = temp_dir / "class_component.py"
         module_path.write_text("""
 class MyServerApp:
-    __metadata__ = {
-        "name": "my_server_app",
-        "version": "1.0.0",
-        "description": "A server application",
-        "wire": True,
-    }
-
     def __init__(self):
         self.initialized = False
         self.shutdown_called = False
@@ -59,6 +65,10 @@ class MyServerApp:
     async def shutdown(self):
         self.shutdown_called = True
 """)
+        create_manifest(temp_dir, [
+            {"name": "my_server_app", "version": "1.0.0", "description": "A server application",
+             "file": "class_component.py", "class": "MyServerApp", "wire": True}
+        ])
         result = compile_component(f"{module_path}:MyServerApp()")
 
         assert result.__metadata__["name"] == "my_server_app"
@@ -68,17 +78,11 @@ class MyServerApp:
         assert result.initialized is False
 
     def test_load_class_instance_with_instance_metadata(self, temp_dir, reset_sys_modules):
-        """Test loading a class that sets __metadata__ in __init__."""
+        """Test loading a class where metadata is provided from manifest."""
         module_path = temp_dir / "instance_meta.py"
         module_path.write_text("""
 class DynamicApp:
     def __init__(self):
-        self.__metadata__ = {
-            "name": "dynamic_app",
-            "version": "2.0.0",
-            "description": "Dynamic metadata",
-            "wire": False,
-        }
         self.initialized = False
 
     async def initialize(self):
@@ -88,6 +92,10 @@ class DynamicApp:
     async def shutdown(self):
         pass
 """)
+        create_manifest(temp_dir, [
+            {"name": "dynamic_app", "version": "2.0.0", "description": "Dynamic metadata",
+             "file": "instance_meta.py", "class": "DynamicApp", "wire": False}
+        ])
         result = compile_component(f"{module_path}:DynamicApp()")
 
         assert result.__metadata__["name"] == "dynamic_app"
@@ -98,17 +106,15 @@ class DynamicApp:
         module_path = temp_dir / "module_attr.py"
         module_path.write_text("""
 class ModuleAttrApp:
-    __metadata__ = {
-        "name": "module_attr_app",
-        "version": "1.0.0",
-    }
-
     async def initialize(self):
         return True
 
     async def shutdown(self):
         pass
 """)
+        create_manifest(temp_dir, [
+            {"name": "module_attr_app", "version": "1.0.0", "file": "module_attr.py", "class": "ModuleAttrApp"}
+        ])
         result = compile_component(f"{module_path}:ModuleAttrApp()")
 
         # Instance should have __module__ set to the module name
@@ -777,13 +783,6 @@ class ServerConfig:
 
 class HttpServerApp:
     """HTTP Server application."""
-    __metadata__ = {
-        "name": "HTTP File Server",
-        "version": "2.0.0",
-        "description": "HTTP File Server with features",
-        "wire": True,
-        "config": ServerConfig
-    }
 
     def __init__(self):
         self._server = None
@@ -801,6 +800,10 @@ class HttpServerApp:
     async def shutdown(self):
         self._running = False
 ''')
+        create_manifest(temp_dir, [
+            {"name": "HTTP File Server", "version": "2.0.0", "description": "HTTP File Server with features",
+             "file": "http_server.py", "class": "HttpServerApp", "wire": True}
+        ])
         # This simulates what happens when ioc.yaml has: app: :HttpServerApp()
         result = compile_component(f"{module_path}:HttpServerApp()")
 
@@ -819,12 +822,6 @@ class HttpServerApp:
         module_path.write_text('''
 class ServerApp:
     """Server application with all lifecycle hooks."""
-    __metadata__ = {
-        "name": "server_app",
-        "version": "1.0.0",
-        "wire": False,
-        "requires": set(),
-    }
 
     def __init__(self):
         self.events = []
@@ -848,6 +845,9 @@ class ServerApp:
     async def shutdown(self):
         self.events.append("shutdown")
 ''')
+        create_manifest(temp_dir, [
+            {"name": "server_app", "version": "1.0.0", "file": "server_app.py", "class": "ServerApp", "wire": False}
+        ])
         app = compile_component(f"{module_path}:ServerApp()")
 
         container = AppContainer()

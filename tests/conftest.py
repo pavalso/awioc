@@ -55,19 +55,11 @@ def empty_config_file(temp_dir):
 
 @pytest.fixture
 def sample_component_module(temp_dir):
-    """Create a sample component module file."""
+    """Create a sample component module file with .awioc/manifest.yaml."""
+    import yaml
+
     module_path = temp_dir / "sample_component.py"
     module_path.write_text("""
-__metadata__ = {
-    "name": "sample_component",
-    "version": "1.0.0",
-    "description": "A sample component for testing",
-    "wire": True,
-    "wirings": set(),
-    "requires": set(),
-    "config": None
-}
-
 async def initialize():
     return True
 
@@ -77,33 +69,66 @@ async def shutdown():
 async def wait():
     pass
 """)
+
+    # Create .awioc/manifest.yaml
+    awioc_dir = temp_dir / ".awioc"
+    awioc_dir.mkdir()
+    manifest = {
+        "manifest_version": "1.0",
+        "components": [
+            {
+                "name": "sample_component",
+                "version": "1.0.0",
+                "description": "A sample component for testing",
+                "file": "sample_component.py",
+                "wire": True,
+            }
+        ],
+    }
+    (awioc_dir / "manifest.yaml").write_text(yaml.dump(manifest))
+
     return module_path
 
 
 @pytest.fixture
 def sample_component_package(temp_dir):
-    """Create a sample component package directory."""
+    """Create a sample component package directory with .awioc/manifest.yaml."""
+    import yaml
+
     pkg_dir = temp_dir / "sample_package"
     pkg_dir.mkdir()
     init_path = pkg_dir / "__init__.py"
     init_path.write_text("""
-__metadata__ = {
-    "name": "sample_package",
-    "version": "2.0.0",
-    "description": "A sample package component",
-    "wire": False,
-}
-
 initialize = None
 shutdown = None
 wait = None
 """)
+
+    # Create .awioc/manifest.yaml inside the package
+    awioc_dir = pkg_dir / ".awioc"
+    awioc_dir.mkdir()
+    manifest = {
+        "manifest_version": "1.0",
+        "components": [
+            {
+                "name": "sample_package",
+                "version": "2.0.0",
+                "description": "A sample package component",
+                "file": "__init__.py",
+                "wire": False,
+            }
+        ],
+    }
+    (awioc_dir / "manifest.yaml").write_text(yaml.dump(manifest))
+
     return pkg_dir
 
 
 @pytest.fixture
 def sample_app_module(temp_dir):
-    """Create a sample app module for testing."""
+    """Create a sample app module for testing with .awioc/manifest.yaml."""
+    import yaml
+
     module_path = temp_dir / "app.py"
     module_path.write_text("""
 from src.awioc.config import Settings
@@ -111,14 +136,6 @@ from src.awioc.config import Settings
 class AppConfig(Settings):
     app_name: str = "test_app"
 
-__metadata__ = {
-    "name": "test_app",
-    "version": "1.0.0",
-    "description": "Test application",
-    "wire": True,
-    "base_config": AppConfig,
-}
-
 async def initialize():
     return True
 
@@ -128,6 +145,24 @@ async def shutdown():
 async def wait():
     pass
 """)
+
+    # Create .awioc/manifest.yaml
+    awioc_dir = temp_dir / ".awioc"
+    awioc_dir.mkdir(exist_ok=True)
+    manifest = {
+        "manifest_version": "1.0",
+        "components": [
+            {
+                "name": "test_app",
+                "version": "1.0.0",
+                "description": "Test application",
+                "file": "app.py",
+                "wire": True,
+            }
+        ],
+    }
+    (awioc_dir / "manifest.yaml").write_text(yaml.dump(manifest))
+
     return module_path
 
 

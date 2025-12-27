@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Default pot directory
 DEFAULT_POT_DIR = Path.home() / ".awioc" / "pots"
 
+# Pot manifest filename (compatible with standard manifest)
+POT_MANIFEST_FILENAME = "pot.yaml"
+
 
 def get_pot_dir() -> Path:
     """Get the pot directory, creating it if needed."""
@@ -40,16 +43,31 @@ def get_pot_path(pot_name: str) -> Path:
 
 
 def load_pot_manifest(pot_path: Path) -> dict:
-    """Load a pot's manifest file."""
-    manifest_path = pot_path / "pot.yaml"
+    """Load a pot's manifest file.
+
+    The pot manifest format is compatible with the standard manifest.yaml format,
+    using a list of component entries instead of a dict for consistency.
+    """
+    manifest_path = pot_path / POT_MANIFEST_FILENAME
     if not manifest_path.exists():
-        return {"name": pot_path.name, "version": "1.0.0", "components": {}}
-    return yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        return {
+            "manifest_version": "1.0",
+            "name": pot_path.name,
+            "version": "1.0.0",
+            "components": {},  # Legacy format uses dict for quick lookup by name
+        }
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+
+    # Ensure manifest_version exists
+    if "manifest_version" not in manifest:
+        manifest["manifest_version"] = "1.0"
+
+    return manifest
 
 
 def save_pot_manifest(pot_path: Path, manifest: dict) -> None:
     """Save a pot's manifest file."""
-    manifest_path = pot_path / "pot.yaml"
+    manifest_path = pot_path / POT_MANIFEST_FILENAME
     manifest_path.write_text(
         yaml.dump(manifest, default_flow_style=False, allow_unicode=True, sort_keys=False),
         encoding="utf-8"
@@ -244,6 +262,7 @@ In ioc.yaml, reference pot components like:
         pot_path.mkdir(parents=True)
 
         manifest = {
+            "manifest_version": "1.0",
             "name": pot_name,
             "version": "1.0.0",
             "description": f"AWIOC component pot: {pot_name}",
@@ -345,16 +364,18 @@ In ioc.yaml, reference pot components like:
             shutil.copytree(component_path, dest_path)
             dest_filename = safe_name
 
-        # Update manifest
+        # Update manifest - use format compatible with manifest.yaml
         component_entry = {
             "name": metadata["name"],
             "version": metadata["version"],
-            "path": dest_filename,
+            "file": dest_filename,  # Use 'file' for consistency with manifest.yaml
+            "path": dest_filename,  # Keep 'path' for backwards compatibility
         }
         if metadata.get("description"):
             component_entry["description"] = metadata["description"]
         if metadata.get("class_name"):
-            component_entry["class_name"] = metadata["class_name"]
+            component_entry["class"] = metadata["class_name"]  # Use 'class' for consistency
+            component_entry["class_name"] = metadata["class_name"]  # Backwards compat
 
         components[safe_name] = component_entry
         save_pot_manifest(pot_path, manifest)

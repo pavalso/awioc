@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pydantic
 import pytest
+import yaml
 from pydantic_settings import YamlConfigSettingsSource
 
 from src.awioc.bootstrap import reconfigure_ioc_app
@@ -34,7 +35,19 @@ from src.awioc.config.models import IOCBaseConfig
 from src.awioc.config.registry import clear_configurations
 from src.awioc.container import AppContainer, ContainerInterface
 from src.awioc.di.wiring import wire, inject_dependencies
+from src.awioc.loader.manifest import AWIOC_DIR, MANIFEST_FILENAME
 from src.awioc.loader.module_loader import compile_component
+
+
+def create_manifest(directory, components):
+    """Helper to create .awioc/manifest.yaml in a directory."""
+    awioc_dir = directory / AWIOC_DIR
+    awioc_dir.mkdir(exist_ok=True)
+    manifest = {
+        "manifest_version": "1.0",
+        "components": components,
+    }
+    (awioc_dir / MANIFEST_FILENAME).write_text(yaml.dump(manifest))
 
 
 class TestFullApplicationLifecycle:
@@ -929,13 +942,12 @@ class TestModuleLoading:
         """Test loading component without .py extension."""
         module_path = temp_dir / "no_ext_component.py"
         module_path.write_text("""
-__metadata__ = {
-    "name": "no_ext_component",
-    "version": "1.0.0",
-}
 initialize = None
 shutdown = None
 """)
+        create_manifest(temp_dir, [
+            {"name": "no_ext_component", "version": "1.0.0", "file": "no_ext_component.py"}
+        ])
 
         # Load using path without .py extension
         component = compile_component(temp_dir / "no_ext_component")
@@ -943,8 +955,9 @@ shutdown = None
         assert component.__metadata__["name"] == "no_ext_component"
 
     def test_compile_component_not_found_raises(self, temp_dir):
-        """Test that loading non-existent component raises error."""
-        with pytest.raises(FileNotFoundError, match="Module not found"):
+        """Test that loading non-existent component raises error (manifest required)."""
+        # With mandatory manifests, non-existent paths fail at manifest lookup
+        with pytest.raises(RuntimeError, match="No manifest entry found"):
             compile_component(temp_dir / "nonexistent")
 
 

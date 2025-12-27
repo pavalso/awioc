@@ -6,6 +6,14 @@ from pathlib import Path
 from types import ModuleType
 from typing import Union, cast, Callable, Optional
 
+from .manifest import (
+    AWIOC_DIR,
+    MANIFEST_FILENAME,
+    find_manifest,
+    load_manifest,
+    manifest_to_metadata,
+    resolve_config_models,
+)
 from ..components.protocols import Component
 
 logger = logging.getLogger(__name__)
@@ -153,6 +161,138 @@ def _get_nested_attr(obj: object, attr_path: str) -> object:
     return obj
 
 
+def _get_manifest_metadata(
+        path: Path,
+        reference: Optional[str],
+) -> Optional[tuple[dict, Path, Path, Optional[str]]]:
+    """
+    Get component metadata from .awioc/manifest.yaml if available.
+
+    Searches for a manifest.yaml in the component's .awioc directory and extracts
+    the metadata for the specified component.
+
+    For package components (directories): looks in path/.awioc/manifest.yaml
+    For single-file components: looks in path.parent/.awioc/manifest.yaml
+
+    :param path: Path to the component file or directory.
+    :param reference: Optional class reference (e.g., "MyClass()").
+    :return: Tuple of (metadata dict, manifest path, resolved file path, class reference)
+             or None if no manifest found.
+    """
+    manifest_path = find_manifest(path)
+    if manifest_path is None:
+        return None
+
+    try:
+        # manifest_path is .awioc/manifest.yaml, so parent.parent is the component directory
+        component_dir = manifest_path.parent.parent
+        manifest = load_manifest(component_dir)
+    except Exception as e:
+        logger.warning("Failed to load manifest %s: %s", manifest_path, e)
+        return None
+
+    # Determine the file name(s) to search for
+    file_names_to_try = []
+    if path.is_file():
+        file_names_to_try = [path.name]
+    elif path.is_dir():
+        # For package directories, try multiple common patterns:
+        # 1. __init__.py (standard package)
+        # 2. <dirname>.py (module named after directory)
+        # 3. <dirname> (directory name without extension)
+        file_names_to_try = ["__init__.py", f"{path.name}.py", path.name]
+    else:
+        # Path doesn't exist yet, try both with and without .py suffix
+        file_names_to_try = [
+            path.with_suffix(".py").name,
+            path.name,
+        ]
+
+    # Extract class name from reference if provided
+    class_name = None
+    if reference:
+        class_name = reference.rstrip("()")
+
+    # Find the component entry in the manifest, trying each possible file name
+    entry = None
+    for file_name in file_names_to_try:
+        entry = manifest.get_component_by_file(file_name, class_name)
+        if entry is not None:
+            break
+        # Try without class filter if we have a reference
+        if class_name:
+            entry = manifest.get_component_by_file(file_name)
+            if entry is not None:
+                break
+
+    # Fallback: for directories, if no file pattern matched and manifest has
+    # exactly one component, use that component (handles cases like openai_gpt/
+    # directory with open_ai.py file)
+    if entry is None and path.is_dir() and len(manifest.components) == 1:
+        entry = manifest.components[0]
+        logger.debug(
+            "Using single manifest entry '%s' for directory '%s'",
+            entry.name,
+            path.name,
+        )
+
+    if entry is None:
+        logger.debug(
+            "No manifest entry found for files %s (class: %s)",
+            file_names_to_try,
+            class_name,
+        )
+        return None
+
+    # Convert entry to metadata dict
+    metadata = manifest_to_metadata(entry, manifest_path)
+
+    # Build resolved file path from manifest entry
+    # For directories, the file is relative to the directory
+    # For single files, the file is in the parent directory
+    if path.is_dir():
+        resolved_file_path = path / entry.file
+    else:
+        resolved_file_path = path.parent / entry.file
+
+    # Get class reference from manifest entry if available
+    resolved_class_ref = f"{entry.class_name}()" if entry.class_name else None
+
+    return metadata, manifest_path, resolved_file_path, resolved_class_ref
+
+
+def _attach_manifest_metadata(
+        component_obj: object,
+        metadata: dict,
+        manifest_path: Path,
+) -> None:
+    """
+    Attach metadata from manifest to a component object.
+
+    Resolves config model references and sets up the __metadata__ attribute.
+
+    :param component_obj: The component object to attach metadata to.
+    :param metadata: Metadata dict from manifest.
+    :param manifest_path: Path to the manifest file.
+    """
+    # Resolve config model references
+    # manifest_path is .awioc/manifest.yaml, so parent.parent is the component directory
+    config_refs = metadata.pop("_config_refs", [])
+    if config_refs:
+        try:
+            component_dir = manifest_path.parent.parent
+            resolved_configs = resolve_config_models(
+                config_refs, component_dir
+            )
+            metadata["config"] = resolved_configs if resolved_configs else None
+        except Exception as e:
+            logger.warning("Failed to resolve config models: %s", e)
+            metadata["config"] = None
+
+    # Set the metadata on the component
+    component_obj.__metadata__ = metadata
+
+
 def _load_module(name: Path) -> ModuleType:
     """
     Load a module from a file or directory path.
@@ -225,9 +365,16 @@ def _load_module(name: Path) -> ModuleType:
     return module
 
 
-def compile_component(component_ref: Union[str, Path]) -> Component:
+def compile_component(
+        component_ref: Union[str, Path],
+        require_manifest: bool = True,
+) -> Component:
     """
     Dynamically load a component from a file or directory path.
+
+    IMPORTANT: All components MUST have a manifest entry in .awioc/manifest.yaml.
+    - Package components: my_package/.awioc/manifest.yaml
+    - Single-file components: parent_dir/.awioc/manifest.yaml
 
     Component references can be in the format:
     - "path/to/module" - load module as component
@@ -238,9 +385,11 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
     - "@pot-name/component:ClassName()" - load specific class from pot
 
     :param component_ref: Path or reference string to the component.
+    :param require_manifest: If True (default), raise error if no manifest found.
     :return: The loaded component.
     :raises FileNotFoundError: If the component path cannot be found.
     :raises AttributeError: If the reference cannot be resolved.
+    :raises RuntimeError: If no manifest entry exists for the component.
     """
     # Convert to string if Path
     if isinstance(component_ref, Path):
@@ -259,7 +408,34 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
         # Parse the reference
         path, reference = _parse_component_reference(component_ref)
 
-    # Load the module
+    # Resolve path for manifest lookup
+    resolved_path = path.resolve() if not path.is_absolute() else path
+
+    # Try to get metadata from manifest BEFORE loading Python
+    manifest_result = _get_manifest_metadata(resolved_path, reference)
+    use_manifest = manifest_result is not None
+
+    if require_manifest and not use_manifest:
+        raise RuntimeError(
+            f"No manifest entry found for component '{component_ref}'. "
+            f"Expected manifest at: {resolved_path / AWIOC_DIR / MANIFEST_FILENAME} "
+            f"or {resolved_path.parent / AWIOC_DIR / MANIFEST_FILENAME}. "
+            f"Create a manifest with: awioc generate manifest <path>"
+        )
+
+    # Use resolved paths from manifest if available
+    if use_manifest:
+        metadata, manifest_path, resolved_file_path, resolved_class_ref = manifest_result
+        # Use manifest's file path and class reference if not explicitly provided
+        # But if the file is __init__.py, keep loading the directory as a package
+        if resolved_file_path.exists() and resolved_file_path.name != "__init__.py":
+            path = resolved_file_path
+            logger.debug("Using manifest file path: %s", path)
+        if resolved_class_ref and not reference:
+            reference = resolved_class_ref
+            logger.debug("Using manifest class reference: %s", reference)
+
+    # Load the module (executes Python code)
     module = _load_module(path)
 
     # Resolve the reference if provided
@@ -271,8 +447,10 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
         component_obj = module
         logger.debug("Component compiled successfully: %s", path)
 
-    if getattr(component_obj, "__metadata__", None) is None:
-        raise RuntimeError(f"The loaded object from '{component_ref}' is not a valid component. ")
+    # Apply metadata from manifest (manifest is required)
+    if use_manifest:
+        _attach_manifest_metadata(component_obj, metadata, manifest_path)
+        logger.debug("Applied metadata from manifest: %s", manifest_path)
 
     # Store the original source reference for serialization
     # For pot references, keep the @pot/component format
@@ -288,3 +466,37 @@ def compile_component(component_ref: Union[str, Path]) -> Component:
         component_obj.wait = None
 
     return cast(Component, component_obj)
+
+
+def compile_components_from_manifest(
+        directory: Path,
+) -> list[Component]:
+    """
+    Load all components defined in a directory's .awioc/manifest.yaml.
+
+    This function loads the manifest and compiles each component defined in it.
+
+    :param directory: Path to the directory containing .awioc/manifest.yaml.
+    :return: List of loaded components.
+    :raises FileNotFoundError: If .awioc/manifest.yaml doesn't exist.
+    """
+    manifest = load_manifest(directory)
+    components = []
+
+    for entry in manifest.components:
+        # Build component reference
+        file_path = directory / entry.file
+        if entry.class_name:
+            component_ref = f"{file_path}:{entry.class_name}()"
+        else:
+            component_ref = str(file_path)
+
+        try:
+            component = compile_component(component_ref, require_manifest=False)
+            components.append(component)
+            logger.debug("Loaded component: %s", entry.name)
+        except Exception as e:
+            logger.error("Failed to load component '%s': %s", entry.name, e)
+            raise
+
+    return components

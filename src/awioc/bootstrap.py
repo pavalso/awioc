@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Iterable
 
 from dependency_injector import providers
@@ -11,7 +12,8 @@ from .components.protocols import Component
 from .config.models import IOCBaseConfig
 from .container import AppContainer, ContainerInterface
 from .di.wiring import wire, inject_dependencies
-from .loader.module_loader import compile_component
+from .loader.module_loader import compile_component, compile_components_from_manifest
+from .loader.manifest import has_awioc_dir
 
 
 def initialize_ioc_app() -> ContainerInterface:  # TODO: add test coverage
@@ -58,11 +60,29 @@ def initialize_ioc_app() -> ContainerInterface:  # TODO: add test coverage
     return compile_ioc_app(ioc_config)
 
 
+def _is_manifest_directory(plugin_ref: str) -> bool:
+    """Check if a plugin reference points to a directory with .awioc/manifest.yaml."""
+    # Skip pot references
+    if plugin_ref.startswith("@"):
+        return False
+
+    # Check if it's a directory with .awioc/manifest.yaml
+    path = Path(plugin_ref)
+    if path.is_dir():
+        return has_awioc_dir(path)
+
+    return False
+
+
 def compile_ioc_app(  # TODO: add test coverage
         ioc_config: IOCBaseConfig
 ) -> ContainerInterface:
     """
     Compile the IOC application using the provided container interface.
+
+    Supports both single-file plugins and directory-based plugins with .awioc/manifest.yaml.
+    When a plugin reference is a directory containing .awioc/manifest.yaml, all components
+    defined in that manifest will be loaded.
 
     :param ioc_config: The IOC configuration.
     """
@@ -79,14 +99,26 @@ def compile_ioc_app(  # TODO: add test coverage
 
     # Compile plugins with error handling - missing plugins are skipped with a warning
     plugins = set()
-    for plugin_name in ioc_components_definitions.plugins:
+    for plugin_ref in ioc_components_definitions.plugins:
         try:
-            plugin = compile_component(plugin_name)
-            plugins.add(plugin)
+            # Check if this is a directory with manifest.yaml
+            if _is_manifest_directory(plugin_ref):
+                logger.debug("Loading plugins from manifest directory: %s", plugin_ref)
+                directory_plugins = compile_components_from_manifest(Path(plugin_ref))
+                plugins.update(directory_plugins)
+                logger.info(
+                    "Loaded %d plugin(s) from %s",
+                    len(directory_plugins),
+                    plugin_ref
+                )
+            else:
+                # Single plugin file or pot reference
+                plugin = compile_component(plugin_ref)
+                plugins.add(plugin)
         except FileNotFoundError:
-            logger.warning("Plugin not found, skipping: %s", plugin_name)
+            logger.warning("Plugin not found, skipping: %s", plugin_ref)
         except Exception as e:
-            logger.error("Failed to compile plugin '%s': %s", plugin_name, e)
+            logger.error("Failed to compile plugin '%s': %s", plugin_ref, e)
 
     libraries = {
         id_: compile_component(library_name)

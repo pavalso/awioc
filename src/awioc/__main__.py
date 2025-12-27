@@ -22,6 +22,7 @@ AVAILABLE_COMMANDS = {
     "info": "Show project information",
     "config": "Manage project configuration",
     "pot": "Manage shared component directories",
+    "generate": "Generate manifest.yaml from components",
 }
 
 
@@ -37,7 +38,14 @@ def create_parser() -> argparse.ArgumentParser:
         prog="awioc",
         description="AWIOC - Async Wired IOC Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="\n".join(epilog_lines)
+        epilog="\n".join(epilog_lines),
+        add_help=False,  # We handle --help manually to support command-specific help
+    )
+
+    parser.add_argument(
+        "-h", "--help",
+        action="store_true",
+        help="Show this help message and exit"
     )
 
     parser.add_argument(
@@ -176,6 +184,21 @@ async def dispatch_command(
     return await command.execute(ctx)
 
 
+def show_command_help(command_name: str) -> int:
+    """Show help for a specific command."""
+    registered_commands = get_registered_commands()
+
+    if command_name not in registered_commands:
+        print(f"Unknown command: {command_name}")
+        print(f"Available commands: {', '.join(AVAILABLE_COMMANDS.keys())}")
+        return 1
+
+    command_class = registered_commands[command_name]
+    command = command_class()
+    print(command.help_text)
+    return 0
+
+
 def main() -> int:
     """Main entry point for the CLI."""
     parser = create_parser()
@@ -187,8 +210,22 @@ def main() -> int:
     if args.version:
         return show_version()
 
-    # Handle help for unknown commands or explicit help
     command_name = args.command
+
+    # Combine args.args and remaining arguments
+    command_args = (args.args or []) + remaining
+
+    # Check if --help or -h is requested for a specific command
+    help_requested = args.help or "-h" in command_args or "--help" in command_args
+
+    if help_requested:
+        # If no command specified or command is 'run' and help was explicit on main parser
+        if args.help and command_name == "run" and not args.args and not remaining:
+            # Show main help
+            return show_help(parser)
+        else:
+            # Show command-specific help
+            return show_command_help(command_name)
 
     # Configure logging
     logging_config = None
@@ -225,7 +262,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nInterrupted")
         return 130
-    except Exception as e:
+    except Exception:
         logger.exception("Error executing command")
         return 1
 

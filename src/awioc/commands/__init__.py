@@ -4,7 +4,7 @@ This package contains all CLI commands implemented as AWIOC components.
 """
 
 # Import command modules (registers them via @register_command decorator)
-from . import run, init, add, remove, info, config, pot
+from . import run, init, add, remove, info, config, pot, generate
 from .base import (
     CommandContext,
     Command,
@@ -27,4 +27,5 @@ __all__ = [
     "info",
     "config",
     "pot",
+    "generate",
 ]
