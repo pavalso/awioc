@@ -35,7 +35,7 @@ def as_component(
         name: Optional[str] = None,
         version: Optional[str] = None,
         description: Optional[str] = "",
-        wire: bool = False,
+        wire: bool = True,
         wirings: Optional[Iterable[str]] = None,
         requires: Optional[Iterable[Component]] = None,
         config: Optional[Iterable[type[BaseModel]] | type[BaseModel]] = None,

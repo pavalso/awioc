@@ -188,6 +188,7 @@ Usage:
 Subcommands:
     init <name>                    Create a new pot
     push <path> [--pot <name>]     Push a component to a pot
+    update <pot>/<component> [source-path]  Update a component from source
     remove <pot>/<component>       Remove a component from a pot
     list [pot-name]                List pots or components in a pot
     info <pot>/<component>         Show component details
@@ -197,6 +198,7 @@ Examples:
     awioc pot init my-components
     awioc pot push ./my_plugin.py --pot my-components
     awioc pot push ./http_server/ --pot my-components
+    awioc pot update my-components/http-server ./http_server/
     awioc pot list my-components
     awioc pot remove my-components/http-server
 
@@ -219,6 +221,8 @@ In ioc.yaml, reference pot components like:
             return await self._pot_init(args, ctx)
         elif subcommand == "push":
             return await self._pot_push(args, ctx)
+        elif subcommand == "update":
+            return await self._pot_update(args, ctx)
         elif subcommand == "remove":
             return await self._pot_remove(args, ctx)
         elif subcommand == "list":
@@ -383,6 +387,124 @@ In ioc.yaml, reference pot components like:
         logger.info(f"Pushed: {metadata['name']} v{metadata['version']}")
         logger.info(f"To pot: {pot_name}")
         logger.info(f"\nUse in ioc.yaml as: @{pot_name}/{safe_name}")
+        return 0
+
+    async def _pot_update(self, args: list[str], ctx: CommandContext) -> int:
+        """Update a component in a pot from a source path.
+
+        Usage:
+            awioc pot update <pot>/<component> [source-path]
+
+        If source-path is provided, copies files from that path.
+        If not provided, re-extracts metadata from the existing component files.
+        """
+        if not args:
+            print("Usage: awioc pot update <pot-name>/<component-name> [source-path]")
+            return 1
+
+        ref = args.pop(0)
+        source_path = Path(args.pop(0)) if args else None
+
+        # Handle @pot/component syntax
+        if ref.startswith("@"):
+            ref = ref[1:]
+
+        if "/" not in ref:
+            print("Error: Invalid format. Use: pot-name/component-name")
+            return 1
+
+        pot_name, component_name = ref.split("/", 1)
+        pot_path = get_pot_path(pot_name)
+
+        if not pot_path.exists():
+            print(f"Error: Pot not found: {pot_name}")
+            return 1
+
+        # Load manifest
+        manifest = load_pot_manifest(pot_path)
+        components = manifest.get("components", {})
+
+        if component_name not in components:
+            print(f"Error: Component not found: {component_name}")
+            print(f"Available components: {', '.join(components.keys()) or '(none)'}")
+            return 1
+
+        component_info = components[component_name]
+        old_version = component_info.get("version", "?")
+
+        if source_path:
+            # Update from external source
+            if not source_path.is_absolute():
+                source_path = Path.cwd() / source_path
+            source_path = source_path.resolve()
+
+            if not source_path.exists():
+                print(f"Error: Source not found: {source_path}")
+                return 1
+
+            # Extract metadata from source
+            metadata = extract_component_metadata(source_path)
+            if metadata is None:
+                print(f"Error: Could not find component metadata in: {source_path}")
+                return 1
+
+            # Get destination path from existing component info
+            dest_filename = component_info.get("path", component_name)
+            dest_path = pot_path / dest_filename
+
+            # Copy files
+            if source_path.is_file():
+                shutil.copy2(source_path, dest_path)
+            else:
+                # Directory - remove old and copy new
+                if dest_path.exists():
+                    shutil.rmtree(dest_path)
+                shutil.copytree(source_path, dest_path)
+
+            # Update manifest entry
+            component_info["name"] = metadata["name"]
+            component_info["version"] = metadata["version"]
+            if metadata.get("description"):
+                component_info["description"] = metadata["description"]
+            if metadata.get("class_name"):
+                component_info["class"] = metadata["class_name"]
+                component_info["class_name"] = metadata["class_name"]
+
+            new_version = metadata["version"]
+            print(f"Updated from source: {source_path}")
+
+        else:
+            # Re-extract metadata from existing files in pot
+            component_file = pot_path / component_info.get("path", component_name)
+
+            if not component_file.exists():
+                print(f"Error: Component file not found: {component_file}")
+                return 1
+
+            metadata = extract_component_metadata(component_file)
+            if metadata is None:
+                print(f"Error: Could not extract metadata from: {component_file}")
+                return 1
+
+            # Update manifest entry with refreshed metadata
+            component_info["name"] = metadata["name"]
+            component_info["version"] = metadata["version"]
+            if metadata.get("description"):
+                component_info["description"] = metadata["description"]
+            if metadata.get("class_name"):
+                component_info["class"] = metadata["class_name"]
+                component_info["class_name"] = metadata["class_name"]
+
+            new_version = metadata["version"]
+            print(f"Refreshed metadata from: {component_file}")
+
+        # Save updated manifest
+        components[component_name] = component_info
+        save_pot_manifest(pot_path, manifest)
+
+        print(f"\nUpdated: {component_info['name']}")
+        print(f"  Version: {old_version} -> {new_version}")
+        print(f"  Pot: {pot_name}")
         return 0
 
     async def _pot_remove(self, args: list[str], ctx: CommandContext) -> int:

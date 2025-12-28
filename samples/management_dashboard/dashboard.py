@@ -43,8 +43,70 @@ from awioc import (
     register_plugin,
     reconfigure_ioc_app,
     as_component,
+    compile_component,
 )
-from awioc.loader.module_loader import compile_component, _load_module
+
+
+def _load_module_for_inspection(module_path: Path):
+    """
+    Load a module from a file path for inspection purposes.
+
+    This is a local helper that uses standard importlib to dynamically
+    load modules for scanning their contents.
+
+    :param module_path: Path to the module file or directory.
+    :return: The loaded module.
+    :raises FileNotFoundError: If the module cannot be found.
+    """
+    import importlib.util
+
+    # Resolve relative paths
+    if not module_path.is_absolute():
+        module_path = module_path.resolve()
+
+    # Determine the actual file to load
+    if module_path.is_file():
+        file_path = module_path
+        module_name = module_path.stem
+    elif module_path.is_dir():
+        file_path = module_path / "__init__.py"
+        module_name = module_path.name
+        if not file_path.exists():
+            raise FileNotFoundError(f"No __init__.py found in {module_path}")
+    else:
+        raise FileNotFoundError(f"Module not found: {module_path}")
+
+    # Add parent directory to sys.path temporarily if needed
+    parent_dir = str(file_path.parent)
+    added_to_path = False
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+        added_to_path = True
+
+    try:
+        # Check if already loaded
+        if module_name in sys.modules:
+            return sys.modules[module_name]
+
+        # Create and load the module
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            str(file_path),
+            submodule_search_locations=[str(file_path.parent)]
+            if file_path.name == "__init__.py"
+            else None
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot create spec for {module_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        # Clean up sys.path if we added to it
+        if added_to_path and parent_dir in sys.path:
+            sys.path.remove(parent_dir)
 
 
 def _get_component_file(component) -> Optional[str]:
@@ -67,6 +129,55 @@ def _get_component_file(component) -> Optional[str]:
         return getattr(module, '__file__', None)
 
     return None
+
+
+def _scan_manifest_for_components(path: Path) -> Optional[dict]:
+    """
+    Scan a path for .awioc/manifest.yaml and extract component info.
+
+    This is a safe, non-executing way to discover components by only
+    reading manifest files instead of loading Python modules.
+
+    Args:
+        path: Path to a file or directory to scan
+
+    Returns:
+        Dict with manifest info if found, None otherwise.
+        Dict contains: name, version, description, components (list of component entries)
+    """
+    # Determine where to look for manifest
+    if path.is_dir():
+        manifest_path = path / ".awioc" / "manifest.yaml"
+    else:
+        # For single files, check parent directory
+        manifest_path = path.parent / ".awioc" / "manifest.yaml"
+
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest_data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+
+        # Extract component entries
+        components = []
+        for comp in manifest_data.get("components", []):
+            if isinstance(comp, dict):
+                components.append({
+                    "name": comp.get("name", "unknown"),
+                    "version": comp.get("version", "0.0.0"),
+                    "description": comp.get("description", ""),
+                    "class_name": comp.get("class") or comp.get("class_name"),
+                    "file": comp.get("file", ""),
+                })
+
+        return {
+            "manifest_name": manifest_data.get("name", path.name),
+            "manifest_version": manifest_data.get("version", "1.0.0"),
+            "manifest_description": manifest_data.get("description", ""),
+            "components": components,
+        }
+    except Exception:
+        return None
 
 
 def _scan_module_for_components(module_path: Path, logger=None) -> list[dict]:
@@ -92,7 +203,7 @@ def _scan_module_for_components(module_path: Path, logger=None) -> list[dict]:
     try:
         # Load the module at runtime to inspect it
         logger.debug(f"Loading module for inspection: {module_path}")
-        module = _load_module(module_path)
+        module = _load_module_for_inspection(module_path)
         logger.debug(f"Module loaded successfully: {module}")
 
         # Also check __all__ if defined to prioritize exported names
@@ -199,58 +310,6 @@ def _scan_module_for_components_ast(module_path: Path) -> list[dict]:
         pass
 
     return components
-
-
-def _check_module_has_metadata(module_path: Path) -> bool:
-    """Check if a module has module-level __metadata__."""
-    try:
-        # Try runtime inspection first
-        module = _load_module(module_path)
-        # Check for module-level __metadata__ (not on a class)
-        if hasattr(module, '__metadata__'):
-            import inspect
-            # Make sure it's not a class attribute we're seeing
-            metadata = getattr(module, '__metadata__')
-            # If __metadata__ is directly on the module (not inherited from a class)
-            if isinstance(metadata, dict):
-                # Check if it's defined at module level by seeing if any class owns it
-                for name in dir(module):
-                    obj = getattr(module, name, None)
-                    if inspect.isclass(obj) and hasattr(obj, '__metadata__'):
-                        if obj.__metadata__ is metadata:
-                            return False  # It belongs to a class
-                return True
-        return False
-    except Exception:
-        # Fallback to AST parsing
-        return _check_module_has_metadata_ast(module_path)
-
-
-def _check_module_has_metadata_ast(module_path: Path) -> bool:
-    """Fallback AST-based check for module-level __metadata__."""
-    import ast
-
-    try:
-        if module_path.is_dir():
-            init_file = module_path / "__init__.py"
-            if not init_file.exists():
-                return False
-            source_file = init_file
-        else:
-            source_file = module_path
-
-        source = source_file.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "__metadata__":
-                        return True
-    except Exception:
-        pass
-
-    return False
 
 
 class DashboardConfig(pydantic.BaseModel):
@@ -523,7 +582,7 @@ class WebSocketManager:
         config_info = self._get_component_config_info(component)
 
         # Get requires (dependencies)
-        requires = metadata.get("requires", set())
+        requires = metadata.get("requires") or set()
         requires_names = [
             req.__metadata__.get("name", "unknown")
             for req in requires
@@ -1671,6 +1730,7 @@ class WebSocketManager:
                             registered_paths.add(parent)
 
             # Update discovered plugins (on disk but not registered)
+            # Only discover plugins that have manifest files (.awioc/manifest.yaml)
             self._discovered_plugins.clear()
             for path in plugin_paths_on_disk:
                 # Check if already registered by path
@@ -1681,41 +1741,40 @@ class WebSocketManager:
                     is_registered = init_path in registered_paths
 
                 if not is_registered:
-                    # Extract basic info from the file
-                    plugin_name = path.stem if path.is_file() else path.name
+                    # Only discover plugins with manifest files (safe, no Python execution)
+                    manifest_info = _scan_manifest_for_components(path)
 
-                    # Scan for component classes (pass logger for debugging)
-                    logger.debug(f"Scanning plugin for components: {path}")
-                    component_classes = _scan_module_for_components(path, logger=logger)
-                    logger.debug(f"Found {len(component_classes)} component classes in {path}")
+                    if manifest_info is None:
+                        # No manifest found, skip this path
+                        logger.debug(f"No manifest found for {path}, skipping")
+                        continue
 
-                    # Filter out component classes that are already registered
-                    unregistered_classes = [
-                        cls for cls in component_classes
-                        if cls.get("metadata_name") not in registered_names
+                    # Filter out components that are already registered by name
+                    unregistered_components = [
+                        comp for comp in manifest_info.get("components", [])
+                        if comp.get("name") not in registered_names
                     ]
 
-                    # Check for module-level __metadata__
-                    has_module_metadata = _check_module_has_metadata(path)
-                    logger.debug(f"Module-level metadata: {has_module_metadata}")
-
-                    # Skip if all component classes are already registered
-                    if not unregistered_classes and not has_module_metadata:
+                    # Skip if all components are already registered
+                    if not unregistered_components:
                         logger.debug(f"All components in {path} already registered, skipping")
                         continue
 
+                    plugin_name = path.stem if path.is_file() else path.name
+
                     self._discovered_plugins[str(path)] = {
-                        "name": plugin_name,
+                        "name": manifest_info.get("manifest_name", plugin_name),
                         "path": str(path),
                         "is_directory": path.is_dir(),
-                        "component_classes": unregistered_classes,
-                        "has_module_metadata": has_module_metadata,
+                        "manifest_version": manifest_info.get("manifest_version", "1.0.0"),
+                        "manifest_description": manifest_info.get("manifest_description", ""),
+                        "components": unregistered_components,
                     }
 
             discovered_count = len(self._discovered_plugins)
             if discovered_count > 0:
-                return {"type": "success", "message": f"Found {discovered_count} unregistered plugin(s)"}
-            return {"type": "info", "message": "No unregistered plugins found"}
+                return {"type": "success", "message": f"Found {discovered_count} unregistered plugin(s) with manifests"}
+            return {"type": "info", "message": "No unregistered plugins with manifests found"}
 
         except Exception as e:
             logger.error("Error discovering plugins from path", exc_info=e)

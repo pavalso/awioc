@@ -40,7 +40,7 @@ class TestAsComponent:
         # Name uses __qualname__ which includes the enclosing scope
         assert "PlainClass" in result.__metadata__["name"]
         assert result.__metadata__["version"] == "0.0.0"
-        assert result.__metadata__["wire"] is False
+        assert result.__metadata__["wire"] is True
 
     def test_preserves_existing_metadata(self):
         """Test as_component preserves existing metadata."""

@@ -75,6 +75,8 @@ def _ast_literal_eval(node: ast.expr) -> Optional[any]:
             return node.value
         if isinstance(node, ast.List):
             return [_ast_literal_eval(elt) for elt in node.elts]
+        if isinstance(node, ast.Tuple):
+            return [_ast_literal_eval(elt) for elt in node.elts]
         if isinstance(node, ast.Set):
             return {_ast_literal_eval(elt) for elt in node.elts}
         if isinstance(node, ast.Dict):
@@ -121,7 +123,7 @@ def _scan_python_file(file_path: Path) -> list[dict]:
             "version": module_meta.get("version", "0.0.0"),
             "description": module_meta.get("description", ""),
             "file": file_path.name,
-            "wire": module_meta.get("wire", False),
+            "wire": module_meta.get("wire", True),
         }
 
         # Handle config
@@ -143,7 +145,7 @@ def _scan_python_file(file_path: Path) -> list[dict]:
                     "description": meta.get("description", ""),
                     "file": file_path.name,
                     "class": meta.get("class", node.name),
-                    "wire": meta.get("wire", False),
+                    "wire": meta.get("wire", True),
                 }
 
                 # Handle config
