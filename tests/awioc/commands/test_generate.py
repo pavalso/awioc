@@ -10,8 +10,93 @@ from src.awioc.commands.generate import (
     _extract_module_metadata,
     _scan_python_file,
     _generate_manifest,
+    _ast_literal_eval,
 )
 from src.awioc.loader.manifest import AWIOC_DIR, MANIFEST_FILENAME
+
+
+class TestAstLiteralEval:
+    """Tests for _ast_literal_eval function."""
+
+    def test_constant_value(self):
+        """Test evaluating a constant."""
+        import ast
+        node = ast.parse("42").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == 42
+
+    def test_string_value(self):
+        """Test evaluating a string."""
+        import ast
+        node = ast.parse('"hello"').body[0].value
+        result = _ast_literal_eval(node)
+        assert result == "hello"
+
+    def test_list_value(self):
+        """Test evaluating a list."""
+        import ast
+        node = ast.parse("[1, 2, 3]").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == [1, 2, 3]
+
+    def test_tuple_value(self):
+        """Test evaluating a tuple."""
+        import ast
+        node = ast.parse("(1, 2)").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == [1, 2]  # Returns as list
+
+    def test_set_value(self):
+        """Test evaluating a set."""
+        import ast
+        node = ast.parse("{1, 2, 3}").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == {1, 2, 3}
+
+    def test_dict_value(self):
+        """Test evaluating a dict."""
+        import ast
+        node = ast.parse('{"a": 1, "b": 2}').body[0].value
+        result = _ast_literal_eval(node)
+        assert result == {"a": 1, "b": 2}
+
+    def test_name_reference(self):
+        """Test evaluating a name reference."""
+        import ast
+        node = ast.parse("MyClass").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == ":MyClass"
+
+    def test_attribute_reference(self):
+        """Test evaluating an attribute reference."""
+        import ast
+        node = ast.parse("module.Class").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == "module:Class"
+
+    def test_nested_attribute_reference(self):
+        """Test evaluating a nested attribute reference."""
+        import ast
+        node = ast.parse("pkg.module.Class").body[0].value
+        result = _ast_literal_eval(node)
+        assert result == "pkg:module:Class"
+
+    def test_bool_value(self):
+        """Test evaluating boolean values."""
+        import ast
+        true_node = ast.parse("True").body[0].value
+        assert _ast_literal_eval(true_node) is True
+
+        false_node = ast.parse("False").body[0].value
+        assert _ast_literal_eval(false_node) is False
+
+    def test_none_value(self):
+        """Test evaluating None."""
+        import ast
+        node = ast.parse("None").body[0].value
+        result = _ast_literal_eval(node)
+        # None is a constant in Python 3.8+
+        assert result is None
 
 
 class TestExtractDecoratorMetadata:
