@@ -297,6 +297,11 @@ def _load_module(name: Path) -> ModuleType:
     """
     Load a module from a file or directory path.
 
+    Handles package contexts properly so that relative imports work correctly.
+    If the module is inside a package (parent directory has __init__.py),
+    the parent package is loaded first and the module is registered as a
+    submodule with the correct __package__ attribute.
+
     :param name: Path to the module (file or directory).
     :return: The loaded module.
     :raises FileNotFoundError: If the module cannot be found.
@@ -309,42 +314,81 @@ def _load_module(name: Path) -> ModuleType:
         name = name.resolve()
         logger.debug("Resolved relative path to: %s", name)
 
-    # Determine module path and desired module name
+    # Determine module path and whether this is a package
+    is_package = False
     if name.is_file():
         module_path = name
-        module_name = name.stem
+        module_simple_name = name.stem
         logger.debug("Path is a file: %s", module_path)
 
     elif name.with_suffix(".py").is_file():
         module_path = name.with_suffix(".py")
-        module_name = name.stem
+        module_simple_name = name.stem
         logger.debug("Path resolved to .py file: %s", module_path)
 
     elif name.is_dir():
         module_path = name / "__init__.py"
-        module_name = name.name
+        module_simple_name = name.name
+        is_package = True
         logger.debug("Path is a directory, using __init__.py: %s", module_path)
 
     else:
         logger.error("Module not found: %s", name)
         raise FileNotFoundError(f"Module not found: {name}")
 
-    parent_dir = module_path.parent.as_posix()
-    if parent_dir not in sys.path:
-        logger.debug("Adding to sys.path: %s", parent_dir)
-        sys.path.insert(0, parent_dir)
+    # Determine if this module is inside a package (parent has __init__.py)
+    # and build the full dotted module name
+    parent_package = None
+    parent_package_name = None
 
-    if module_name in sys.modules:
-        logger.debug("Module already loaded, reusing: %s", module_name)
-        return sys.modules[module_name]
+    if is_package:
+        # For packages, the parent is the directory containing this package
+        package_dir = module_path.parent  # The package directory itself
+        parent_of_package = package_dir.parent
+        parent_init = parent_of_package / "__init__.py"
+    else:
+        # For regular files, check if the containing directory is a package
+        package_dir = module_path.parent
+        parent_init = package_dir / "__init__.py"
 
-    # Create spec
-    logger.debug("Creating module spec for: %s", module_name)
+    if parent_init.exists() and not is_package:
+        # This file is inside a package - load the parent package first
+        logger.debug("Module is inside a package, loading parent: %s", package_dir)
+        parent_package = _load_module(package_dir)
+        parent_package_name = parent_package.__name__
+        full_module_name = f"{parent_package_name}.{module_simple_name}"
+        logger.debug("Full module name: %s", full_module_name)
+    else:
+        full_module_name = module_simple_name
+
+    # Add the appropriate directory to sys.path
+    if is_package:
+        # For packages, add the parent of the package directory
+        path_to_add = module_path.parent.parent.as_posix()
+    else:
+        # For files inside a package, the parent package should have set up sys.path
+        # For standalone files, add the parent directory
+        if parent_package is None:
+            path_to_add = module_path.parent.as_posix()
+        else:
+            path_to_add = None  # Already set by parent package
+
+    if path_to_add and path_to_add not in sys.path:
+        logger.debug("Adding to sys.path: %s", path_to_add)
+        sys.path.insert(0, path_to_add)
+
+    # Check if module is already loaded
+    if full_module_name in sys.modules:
+        logger.debug("Module already loaded, reusing: %s", full_module_name)
+        return sys.modules[full_module_name]
+
+    # Create spec with proper submodule search locations for packages
+    logger.debug("Creating module spec for: %s", full_module_name)
     spec = importlib.util.spec_from_file_location(
-        module_name,
+        full_module_name,
         module_path.as_posix(),
         submodule_search_locations=[module_path.parent.as_posix()]
-        if module_path.name == "__init__.py"
+        if is_package
         else None
     )
 
@@ -355,11 +399,25 @@ def _load_module(name: Path) -> ModuleType:
     # Create module with the desired name
     module = importlib.util.module_from_spec(spec)
 
-    # Guarantee module.__name__ == module_name
-    sys.modules[module_name] = module
+    # Set __package__ for relative imports to work
+    if is_package:
+        module.__package__ = full_module_name
+    elif parent_package_name:
+        module.__package__ = parent_package_name
+    else:
+        module.__package__ = ""
+
+    logger.debug("Module __package__ set to: %s", module.__package__)
+
+    # Register in sys.modules before executing (needed for circular imports)
+    sys.modules[full_module_name] = module
+
+    # If this is a submodule, also register it as an attribute of the parent
+    if parent_package is not None:
+        setattr(parent_package, module_simple_name, module)
 
     # Execute module code
-    logger.debug("Executing module: %s", module_name)
+    logger.debug("Executing module: %s", full_module_name)
     loader.exec_module(module)
 
     return module

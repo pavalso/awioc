@@ -764,9 +764,9 @@ class MyComponent:
         metadata = extract_component_metadata(component_file)
         assert metadata is None
 
-    def test_extract_handles_syntax_error(self, tmp_path):
-        """Test that syntax error in file is handled gracefully."""
-        component_file = tmp_path / "invalid.py"
+    def test_extract_raises_for_syntax_error(self, tmp_path):
+        """Test that syntax error in file raises exception."""
+        component_file = tmp_path / "broken.py"
         component_file.write_text("def broken(: pass")
-        metadata = extract_component_metadata(component_file)
-        assert metadata is None
+        with pytest.raises(SyntaxError):
+            extract_component_metadata(component_file)

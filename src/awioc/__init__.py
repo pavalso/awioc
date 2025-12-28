@@ -62,6 +62,14 @@ from .api import (
     setup_logging,
 )
 
+from .project import (
+    # Project API
+    AWIOCProject,
+    is_awioc_project,
+    open_project,
+    create_project,
+)
+
 __all__ = [
     # Bootstrap
     "initialize_ioc_app",
@@ -117,4 +125,9 @@ __all__ = [
     "compile_component",
     # Logging
     "setup_logging",
+    # Project API
+    "AWIOCProject",
+    "is_awioc_project",
+    "open_project",
+    "create_project",
 ]

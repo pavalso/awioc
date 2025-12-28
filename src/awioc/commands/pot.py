@@ -79,36 +79,32 @@ def extract_component_metadata(component_path: Path) -> Optional[dict]:
 
     Returns dict with name, version, description if found.
     """
-    try:
-        module = _load_module(component_path)
+    module = _load_module(component_path)
 
-        # Check for module-level __metadata__
-        if hasattr(module, "__metadata__"):
-            metadata = module.__metadata__
+    # Check for module-level __metadata__
+    if hasattr(module, "__metadata__"):
+        metadata = module.__metadata__
+        if isinstance(metadata, dict):
+            return {
+                "name": metadata.get("name", component_path.stem),
+                "version": metadata.get("version", "1.0.0"),
+                "description": metadata.get("description", ""),
+            }
+
+    # Check for class with __metadata__ (class-based components)
+    import inspect
+    for name, obj in inspect.getmembers(module, inspect.isclass):
+        if hasattr(obj, "__metadata__"):
+            metadata = obj.__metadata__
             if isinstance(metadata, dict):
                 return {
                     "name": metadata.get("name", component_path.stem),
                     "version": metadata.get("version", "1.0.0"),
                     "description": metadata.get("description", ""),
+                    "class_name": name,
                 }
 
-        # Check for class with __metadata__ (class-based components)
-        import inspect
-        for name, obj in inspect.getmembers(module, inspect.isclass):
-            if hasattr(obj, "__metadata__"):
-                metadata = obj.__metadata__
-                if isinstance(metadata, dict):
-                    return {
-                        "name": metadata.get("name", component_path.stem),
-                        "version": metadata.get("version", "1.0.0"),
-                        "description": metadata.get("description", ""),
-                        "class_name": name,
-                    }
-
-        return None
-    except Exception as e:
-        logger.debug(f"Could not extract metadata from {component_path}: {e}")
-        return None
+    return None
 
 
 def resolve_pot_component(pot_ref: str) -> Optional[Path]:

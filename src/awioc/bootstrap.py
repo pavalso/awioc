@@ -118,7 +118,7 @@ def compile_ioc_app(  # TODO: add test coverage
         except FileNotFoundError:
             logger.warning("Plugin not found, skipping: %s", plugin_ref)
         except Exception as e:
-            logger.error("Failed to compile plugin '%s': %s", plugin_ref, e)
+            logger.error("Failed to compile plugin '%s': %s", plugin_ref, e, exc_info=True)
 
     libraries = {
         id_: compile_component(library_name)
