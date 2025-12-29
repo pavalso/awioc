@@ -122,7 +122,7 @@ class WebSocketManager:
         config_info = self._get_component_config_info(component)
 
         requires = metadata.get("requires") or set()
-        requires_names = [req.__metadata__.get("name", "unknown") for req in requires]
+        requires_names = list(requires)  # requires now contains strings (component names)
 
         registration = component_registration(component)
         registration_info = None

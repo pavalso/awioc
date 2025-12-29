@@ -216,11 +216,10 @@ def manifest_to_metadata(
         "description": entry.description,
         "wire": entry.wire,
         "wirings": set(entry.wirings) if entry.wirings else set(),
-        "requires": None,  # Will be resolved later with actual component refs
+        "requires": set(entry.requires) if entry.requires else set(),  # Component names
         "config": None,  # Will be resolved when configs are loaded
         "_internals": None,
         "_manifest_path": str(manifest_path),
-        "_requires_names": entry.requires,  # Store names for later resolution
         "_config_refs": [
             {"model": c.model, "prefix": c.prefix} for c in entry.get_config_list()
         ],

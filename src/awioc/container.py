@@ -15,7 +15,6 @@ from .components.protocols import (
     LibraryComponent,
 )
 from .components.registry import (
-    component_requires,
     component_internals,
     component_initialized,
     clean_module_name,
@@ -159,9 +158,8 @@ class ContainerInterface:
             line=frame.lineno
         )
 
-    @classmethod
     def __init_component(
-            cls,
+            self,
             component: Component,
             registration: RegistrationInfo
     ) -> Internals:
@@ -172,26 +170,26 @@ class ContainerInterface:
         _internals.registration = registration
         component.__metadata__["_internals"] = _internals
 
-        for req in component_requires(component):
-            if not component_initialized(req):
-                # Dependencies inherit registration from the parent component
-                cls.__init_component(req, registration)
-            req.__metadata__["_internals"].required_by.add(component)
+        for req in self._compute_requirements(component):
+            # Check if the required component has internals (is registered)
+            req_internals = req.__metadata__.get("_internals")
+            if req_internals is not None:
+                req_internals.required_by.add(component)
+                _internals.requires.add(req)
 
         return _internals
 
-    @classmethod
-    def __deinit_component(cls, component: Component):
+    def __deinit_component(self, component: Component):
         assert hasattr(component, "__metadata__")
 
-        if "_internals" not in component.__metadata__ or component.__metadata__[
-            "_internals"] is None:  # TODO: add test coverage
+        if "_internals" not in component.__metadata__ or component.__metadata__["_internals"] is None:
             return
 
-        for req in component_requires(component):
-            if not component_initialized(req):  # TODO: add test coverage
-                continue
-            req.__metadata__["_internals"].required_by.discard(component)
+        # component_requires returns component names (strings)
+        for req in self._compute_requirements(component):
+            req_internals = req.__metadata__.get("_internals")
+            if req_internals is not None:
+                req_internals.required_by.discard(component)
 
         component.__metadata__["_internals"] = None
 
@@ -276,3 +274,30 @@ class ContainerInterface:
         self._container.config.override(
             providers.Object(config)
         )
+
+    def _compute_requirements(
+            self,
+            *components: Component,
+            recursive: bool = False
+    ) -> set[Component]:
+        required = set()
+
+        for component in components:
+            if "requires" not in component.__metadata__:
+                requires = set()
+            elif not component.__metadata__["requires"]:
+                requires = set()
+            else:
+                requires = component.__metadata__["requires"]
+
+            for req in requires:
+                if req in required:
+                    continue
+                req = self.provided_component(req)
+                if req is None:
+                    continue
+                required.add(req)
+                if recursive:
+                    required.update(self._compute_requirements(req, recursive=True))
+
+        return required

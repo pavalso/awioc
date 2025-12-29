@@ -106,7 +106,7 @@ def compile_ioc_app(  # TODO: add test coverage
                 logger.debug("Loading plugins from manifest directory: %s", plugin_ref)
                 directory_plugins = compile_components_from_manifest(Path(plugin_ref))
                 plugins.update(directory_plugins)
-                logger.info(
+                logger.debug(
                     "Loaded %d plugin(s) from %s",
                     len(directory_plugins),
                     plugin_ref

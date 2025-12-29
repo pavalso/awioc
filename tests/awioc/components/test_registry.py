@@ -19,7 +19,7 @@ class MockComponent:
         "name": "mock",
         "version": "1.0.0",
         "description": "Mock component",
-        "requires": set()
+        "requires": set()  # Now stores component names (strings)
     }
     initialize = None
     shutdown = None

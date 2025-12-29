@@ -126,6 +126,16 @@ def _scan_python_file(file_path: Path) -> list[dict]:
             "wire": module_meta.get("wire", True),
         }
 
+        # Handle wirings
+        wirings_value = module_meta.get("wirings")
+        if wirings_value:
+            entry["wirings"] = _format_wirings(wirings_value)
+
+        # Handle requires
+        requires_value = module_meta.get("requires")
+        if requires_value:
+            entry["requires"] = _format_requires(requires_value)
+
         # Handle config
         config_value = module_meta.get("config")
         if config_value:
@@ -148,6 +158,16 @@ def _scan_python_file(file_path: Path) -> list[dict]:
                     "wire": meta.get("wire", True),
                 }
 
+                # Handle wirings
+                wirings_value = meta.get("wirings")
+                if wirings_value:
+                    entry["wirings"] = _format_wirings(wirings_value)
+
+                # Handle requires
+                requires_value = meta.get("requires")
+                if requires_value:
+                    entry["requires"] = _format_requires(requires_value)
+
                 # Handle config
                 config_value = meta.get("config")
                 if config_value:
@@ -156,6 +176,41 @@ def _scan_python_file(file_path: Path) -> list[dict]:
                 components.append(entry)
 
     return components
+
+
+def _format_wirings(wirings_value: any) -> list[str]:
+    """Format wirings for manifest.
+
+    Converts various wiring formats to a list of strings.
+    """
+    if isinstance(wirings_value, str):
+        return [wirings_value]
+    elif isinstance(wirings_value, (list, tuple, set)):
+        return [str(w) for w in wirings_value if w]
+    return []
+
+
+def _format_requires(requires_value: any) -> list[str]:
+    """Format requires for manifest.
+
+    Converts various requires formats to a list of component name strings.
+    References like ':ComponentName' are converted to 'ComponentName'.
+    """
+    result = []
+    if isinstance(requires_value, str):
+        # Single string reference
+        if requires_value.startswith(":"):
+            result.append(requires_value[1:])
+        else:
+            result.append(requires_value)
+    elif isinstance(requires_value, (list, tuple, set)):
+        for item in requires_value:
+            if isinstance(item, str):
+                if item.startswith(":"):
+                    result.append(item[1:])
+                else:
+                    result.append(item)
+    return result
 
 
 def _format_config_ref(config_value: any, file_path: Path) -> list[dict]:

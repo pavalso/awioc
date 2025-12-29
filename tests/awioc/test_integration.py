@@ -209,12 +209,12 @@ class TestDependencyChains:
 
     @pytest.fixture
     def dependent_component(self, base_component):
-        """Create a component that depends on base_component."""
+        """Create a component that depends on base_component by name."""
         class DependentComponent:
             __metadata__ = {
                 "name": "dependent",
                 "version": "1.0.0",
-                "requires": {base_component},
+                "requires": {"base"},  # Now uses component name
             }
             initialized = False
 
@@ -232,10 +232,11 @@ class TestDependencyChains:
         container = AppContainer()
         interface = ContainerInterface(container)
 
-        # Register dependent first (has base as requirement)
+        # Register base first, then dependent
+        interface.register_libraries(("base", base_component))
         interface.set_app(dependent_component)
 
-        # Check that base_component's internals were created and linked
+        # Check that internals were created and linked
         assert "_internals" in base_component.__metadata__
         assert "_internals" in dependent_component.__metadata__
 
@@ -255,25 +256,29 @@ class TestDependencyChains:
         })()
 
         level2 = type("Level2", (), {
-            "__metadata__": {"name": "level2", "version": "1.0.0", "requires": {level1}}
+            "__metadata__": {"name": "level2", "version": "1.0.0", "requires": {"level1"}}  # Uses name
         })()
 
         level3 = type("Level3", (), {
-            "__metadata__": {"name": "level3", "version": "1.0.0", "requires": {level2}}
+            "__metadata__": {"name": "level3", "version": "1.0.0", "requires": {"level2"}}  # Uses name
         })()
 
         container = AppContainer()
         interface = ContainerInterface(container)
+
+        # Register dependencies first so required_by chains are set up
+        interface.register_libraries(("level1", level1))
+        interface.register_libraries(("level2", level2))
         interface.set_app(level3)
 
-        # Get all dependencies recursively
+        # Verify required_by chain is set up correctly
+        assert level3 in component_internals(level2).required_by
+        assert level2 in component_internals(level1).required_by
+
+        # Get all dependencies recursively (uses _internals.requires which has resolved objects)
         all_deps = component_requires(level3, recursive=True)
         assert level2 in all_deps
         assert level1 in all_deps
-
-        # Verify required_by chain
-        assert level3 in component_internals(level2).required_by
-        assert level2 in component_internals(level1).required_by
 
     async def test_shutdown_blocked_by_dependency(self):
         """Test that shutdown is blocked when component is still required."""
@@ -284,13 +289,16 @@ class TestDependencyChains:
         })()
 
         dependent = type("Dependent", (), {
-            "__metadata__": {"name": "dependent", "version": "1.0.0", "requires": {base}},
+            "__metadata__": {"name": "dependent", "version": "1.0.0", "requires": {"base"}},  # Uses name
             "initialize": AsyncMock(return_value=True),
             "shutdown": AsyncMock()
         })()
 
         container = AppContainer()
         interface = ContainerInterface(container)
+
+        # Register base first, then dependent
+        interface.register_plugins(base)
         interface.set_app(dependent)
 
         # Initialize both
@@ -637,7 +645,7 @@ class TestPluginManagement:
             "shutdown": AsyncMock()
         })()
 
-        # Create dependent plugin that requires base_plugin
+        # Create dependent plugin that requires base_plugin by name
         dependent_plugin = type("DependentPlugin", (), {
             "__name__": "dependent_plugin",
             "__module__": "test",
@@ -645,14 +653,15 @@ class TestPluginManagement:
             "__metadata__": {
                 "name": "dependent_plugin",
                 "version": "1.0.0",
-                "requires": {base_plugin},
+                "requires": {"base_plugin"},  # Uses name instead of object
                 "wire": False,
             },
             "initialize": AsyncMock(return_value=True),
             "shutdown": AsyncMock()
         })()
 
-        # Register dependent plugin (this will also init base_plugin's internals)
+        # Register base_plugin first, then dependent_plugin
+        interface.register_plugins(base_plugin)
         interface.register_plugins(dependent_plugin)
 
         # Both should have internals
@@ -691,19 +700,16 @@ class TestPluginManagement:
             "__metadata__": {
                 "name": "dependent_plugin",
                 "version": "1.0.0",
-                "requires": {base_plugin},
+                "requires": {"base_plugin"},  # Uses name instead of object
                 "wire": False,
             },
             "initialize": AsyncMock(return_value=True),
             "shutdown": AsyncMock()
         })()
 
-        # Register dependent plugin first (this initializes base_plugin's internals via dependency resolution)
+        # Register base first, then dependent
+        interface.register_plugins(base_plugin)
         interface.register_plugins(dependent_plugin)
-
-        # Manually add base_plugin to plugins map (its internals are already created)
-        from dependency_injector import providers
-        interface._plugins_map[base_plugin.__metadata__["name"]] = providers.Object(base_plugin)
 
         # Initialize both
         await initialize_components(base_plugin, dependent_plugin)
@@ -1040,36 +1046,50 @@ class TestWiringIntegration:
 
     def test_wire_collects_module_names(self):
         """Test wire collects modules for wiring."""
-        container = AppContainer()
-        interface = ContainerInterface(container)
-        container.wire = MagicMock()
+        import sys
+        from types import ModuleType
 
-        class TestComponent:
-            __name__ = "test_component"
-            __module__ = "test.module"
-            __package__ = "test"
-            __metadata__ = {
-                "name": "test_component",
-                "version": "1.0.0",
-                "requires": set(),
-                "wire": True,
-                "wirings": {"submodule"},
-            }
-            initialize = None
-            shutdown = None
+        # Create fake modules
+        fake_test_module = ModuleType("test.module")
+        fake_test_submodule = ModuleType("test.submodule")
+        sys.modules["test.module"] = fake_test_module
+        sys.modules["test.submodule"] = fake_test_submodule
 
-        component = TestComponent()
-        interface.set_app(component)
+        try:
+            container = AppContainer()
+            interface = ContainerInterface(container)
+            container.wire = MagicMock()
 
-        wire(interface, components=[component])
+            class TestComponent:
+                __name__ = "test_component"
+                __module__ = "test.module"
+                __package__ = "test"
+                __metadata__ = {
+                    "name": "test_component",
+                    "version": "1.0.0",
+                    "requires": set(),
+                    "wire": True,
+                    "wirings": {"submodule"},
+                }
+                initialize = None
+                shutdown = None
 
-        # Verify wire was called
-        container.wire.assert_called_once()
-        call_args = container.wire.call_args
-        modules = call_args.kwargs.get("modules") or call_args.args[0]
+            component = TestComponent()
+            interface.set_app(component)
 
-        assert "test.module" in modules
-        assert "test.submodule" in modules
+            wire(interface, components=[component])
+
+            # Verify wire was called
+            container.wire.assert_called_once()
+            call_args = container.wire.call_args
+            modules = call_args.kwargs.get("modules") or call_args.args[0]
+            module_names = {m.__name__ for m in modules}
+
+            assert "test.module" in module_names
+            assert "test.submodule" in module_names
+        finally:
+            del sys.modules["test.module"]
+            del sys.modules["test.submodule"]
 
 
 class TestComponentLifecycleEdgeCases:
@@ -1669,7 +1689,7 @@ class TestEndToEndScenarios:
 
     async def test_graceful_shutdown_with_dependencies(self):
         """Test graceful shutdown respects dependency order."""
-        # Create components with dependencies
+        # Create components with dependencies (using names)
         base = type("Base", (), {
             "__metadata__": {"name": "base", "version": "1.0.0", "requires": set()},
             "initialize": AsyncMock(return_value=True),
@@ -1677,19 +1697,23 @@ class TestEndToEndScenarios:
         })()
 
         middle = type("Middle", (), {
-            "__metadata__": {"name": "middle", "version": "1.0.0", "requires": {base}},
+            "__metadata__": {"name": "middle", "version": "1.0.0", "requires": {"base"}},
             "initialize": AsyncMock(return_value=True),
             "shutdown": AsyncMock()
         })()
 
         top = type("Top", (), {
-            "__metadata__": {"name": "top", "version": "1.0.0", "requires": {middle}},
+            "__metadata__": {"name": "top", "version": "1.0.0", "requires": {"middle"}},
             "initialize": AsyncMock(return_value=True),
             "shutdown": AsyncMock()
         })()
 
         container = AppContainer()
         interface = ContainerInterface(container)
+
+        # Register in order so dependencies are available
+        interface.register_plugins(base)
+        interface.register_plugins(middle)
         interface.set_app(top)
 
         # Initialize all

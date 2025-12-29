@@ -42,6 +42,7 @@ class RegistrationInfo:
 
 @dataclass
 class Internals:
+    requires: set["Component"] = field(default_factory=set)
     required_by: set["Component"] = field(default_factory=set)
     initialized_by: set["Component"] = field(default_factory=set)
     is_initialized: bool = False
@@ -64,7 +65,7 @@ class ComponentMetadata(TypedDict):
         description (str): A brief description of the component.
         wire (Optional[bool]): Whether the component should be auto-wired.
         wirings (Optional[set[str]]): A set of module names to wire.
-        requires (Optional[set[Component]]): A set of other components this component depends on.
+        requires (Optional[set[str]]): A set of component names this component depends on.
             Those components MUST be registered in the container for this component to work.
         config (Optional[type[BaseModel]]): An optional Pydantic model for configuration.
     """
@@ -73,7 +74,7 @@ class ComponentMetadata(TypedDict):
     description: str
     wire: Optional[bool]
     wirings: Optional[set[str]]
-    requires: Optional[set["Component"]]
+    requires: Optional[set[str]]
     config: Optional[set[type[pydantic.BaseModel]]]
 
     _internals: Optional["Internals"]
@@ -95,7 +96,7 @@ def metadata(
         description: str,
         wire: Optional[bool] = True,
         wirings: Optional[set[str]] = None,
-        requires: Optional[set["Component"]] = None,
+        requires: Optional[set[Union["Component", str]]] = None,
         config: Optional[Union[set[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
         **kwargs
 ) -> ComponentMetadata:
@@ -110,12 +111,21 @@ def metadata(
         description: str,
         wire: Optional[bool] = True,
         wirings: Optional[Iterable[str]] = None,
-        requires: Optional[Iterable["Component"]] = None,
+        requires: Optional[Iterable[Union["Component", str]]] = None,
         config: Optional[Union[Iterable[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
         base_config: Optional[type["Settings"]],
         **kwargs
 ) -> AppMetadata:
     ...
+
+
+def _get_component_name(component: Union["Component", str]) -> str:
+    """Extract component name from a Component type or string."""
+    if isinstance(component, str):
+        return component
+    if hasattr(component, "__metadata__") and "name" in component.__metadata__:
+        return component.__metadata__["name"]
+    return getattr(component, "__qualname__", component.__class__.__qualname__)
 
 
 def metadata(
@@ -125,7 +135,7 @@ def metadata(
         description: str,
         wire: Optional[bool] = True,
         wirings: Optional[Iterable[str]] = None,
-        requires: Optional[Iterable["Component"]] = None,
+        requires: Optional[Iterable[Union["Component", str]]] = None,
         config: Optional[Union[Iterable[type[pydantic.BaseModel]], type[pydantic.BaseModel]]] = None,
         base_config: Optional[type["Settings"]] = None,
         **kwargs
@@ -139,8 +149,9 @@ def metadata(
         description (str): A brief description of the component.
         wire (Optional[bool]): Whether the component should be auto-wired.
         wirings (Optional[Iterable[str]]): An iterable of module names to wire.
-        requires (Optional[Iterable[Component]]): An iterable of other components this component depends on.
+        requires (Optional[Iterable[Component | str]]): An iterable of other components (types or names) this component depends on.
             Those components MUST be registered in the container for this component to work.
+            Component types are converted to their names for storage.
         config (Optional[Union[Iterable[type[BaseModel]], type[BaseModel]]]): An optional Pydantic model or iterable of models for configuration.
         base_config (Optional[type[Settings]]): An optional base configuration class for app components.
         **kwargs: Additional keyword arguments to include in the metadata.
@@ -148,7 +159,8 @@ def metadata(
     if wirings is not None:
         wirings = set(wirings)
     if requires is not None:
-        requires = set(requires)
+        # Convert Component types to their names
+        requires = set(_get_component_name(req) for req in requires)
     if config is not None:
         if isinstance(config, type) and issubclass(config, pydantic.BaseModel):
             config = {config}

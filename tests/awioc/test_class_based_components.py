@@ -521,7 +521,7 @@ class TestClassBasedComponentWithDependencies:
     """Tests for class-based components with dependencies."""
 
     async def test_class_component_with_dependency(self):
-        """Test class component that depends on another component."""
+        """Test class component that depends on another component by name."""
 
         class DatabaseLib:
             __metadata__ = {
@@ -538,11 +538,11 @@ class TestClassBasedComponentWithDependencies:
                 "name": "service_app",
                 "version": "1.0.0",
                 "wire": False,
+                "requires": {"database"},  # Uses name instead of object
             }
 
             def __init__(self, db):
                 self.db = db
-                self.__metadata__["requires"] = {db}
 
             async def initialize(self):
                 return True
@@ -555,6 +555,9 @@ class TestClassBasedComponentWithDependencies:
 
         container = AppContainer()
         interface = ContainerInterface(container)
+
+        # Register db first so it's available when app is registered
+        interface.register_libraries(("database", db))
         interface.set_app(app)
 
         # Both should have internals set up
@@ -584,13 +587,12 @@ class TestClassBasedComponentWithDependencies:
         base = BasePlugin()
 
         class DependentPlugin:
-            def __init__(self):
-                self.__metadata__ = {
-                    "name": "dependent_plugin",
-                    "version": "1.0.0",
-                    "wire": False,
-                    "requires": {base},
-                }
+            __metadata__ = {
+                "name": "dependent_plugin",
+                "version": "1.0.0",
+                "wire": False,
+                "requires": {"base_plugin"},  # Uses name instead of object
+            }
 
             async def initialize(self):
                 return True
@@ -602,6 +604,9 @@ class TestClassBasedComponentWithDependencies:
 
         container = AppContainer()
         interface = ContainerInterface(container)
+
+        # Register base first, then dependent
+        interface.register_plugins(base)
         interface.set_app(dependent)
 
         # Initialize both

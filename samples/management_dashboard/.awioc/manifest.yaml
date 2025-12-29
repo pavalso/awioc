@@ -9,5 +9,7 @@ components:
     file: dashboard.py
     class: ManagementDashboardApp
     wire: true
+    wirings:
+      - http_handler
     config:
       - model: dashboard:DashboardConfig

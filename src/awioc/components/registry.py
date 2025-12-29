@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Callable, overload, Iterable, TypeVar
+from typing import Any, Optional, Callable, overload, Iterable, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ def as_component(
         description: Optional[str] = ...,
         wire: bool = ...,
         wirings: Optional[Iterable[str]] = ...,
-        requires: Optional[Iterable[Component]] = ...,
+        requires: Optional[Iterable[Union[Component, str]]] = ...,
         config: Optional[Iterable[type[BaseModel]] | type[BaseModel]] = ...,
         base_config: Optional[type[Any]] = ...
 ) -> Callable[[object], Component]: ...
@@ -37,7 +37,7 @@ def as_component(
         description: Optional[str] = "",
         wire: bool = True,
         wirings: Optional[Iterable[str]] = None,
-        requires: Optional[Iterable[Component]] = None,
+        requires: Optional[Iterable[Union[Component, str]]] = None,
         config: Optional[Iterable[type[BaseModel]] | type[BaseModel]] = None,
         base_config: Optional[type[Any]] = None,
 ):
@@ -81,32 +81,61 @@ def as_component(
     return decorator if ref is None else decorator(ref)
 
 
+def component_required_by(component: Component) -> set[Component]:
+    """
+    Get the components that require a given component.
+
+    :param component: The component to analyze.
+    """
+    _internals = component_internals(component)
+    assert _internals is not None
+    assert _internals.required_by is not None
+    return _internals.required_by
+
+
 def component_requires(*components: Component, recursive: bool = False) -> set[Component]:
     """
-    Get the full set of components required by the given components.
+    Get the components required by one or more components.
 
-    :param components: The initial components to analyze.
-    :param recursive: Whether to include dependencies of dependencies.
-    :return: A set of all required components.
+    :param components: The component(s) to analyze.
+    :param recursive: If True, recursively resolve all dependencies.
+    :return: Set of required components.
     """
-    required = set()
+    result: set[Component] = set()
 
-    for component in components:
-        if "requires" not in component.__metadata__:
-            requires = set()
-        elif not component.__metadata__["requires"]:
-            requires = set()
-        else:
-            requires = component.__metadata__["requires"]
+    def get_requires(comp: Component) -> set[Component]:
+        """Get direct requirements of a single component."""
+        if not hasattr(comp, "__metadata__"):
+            return set()
 
-        for req in requires:
-            if req in required:
-                continue
-            required.add(req)
+        metadata = comp.__metadata__
+
+        # Try _internals.requires first (contains resolved component objects)
+        if "_internals" in metadata and metadata["_internals"] is not None:
+            internals = metadata["_internals"]
+            if internals.requires:
+                return internals.requires
+
+        # Fallback to metadata requires (may contain strings or objects)
+        return metadata.get("requires", set()) or set()
+
+    def collect_recursive(comp: Component, visited: set[int]) -> None:
+        """Recursively collect all dependencies."""
+        comp_id = id(comp)
+        if comp_id in visited:
+            return
+        visited.add(comp_id)
+
+        for req in get_requires(comp):
+            result.add(req)
             if recursive:
-                required.update(component_requires(req, recursive=True))
+                collect_recursive(req, visited)
 
-    return required
+    visited: set[int] = set()
+    for component in components:
+        collect_recursive(component, visited)
+
+    return result
 
 
 def component_internals(component: Component) -> Internals:
@@ -127,6 +156,7 @@ def component_str(component: Component) -> str:
     :param component: The component.
     :return: String in format "name version".
     """
+    assert hasattr(component, "__metadata__")
     meta = component.__metadata__
     return f"{meta['name']} v{meta['version']}"
 

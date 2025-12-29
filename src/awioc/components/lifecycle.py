@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from .events import emit, ComponentEvent
 from .metadata import RegistrationInfo
 from .protocols import Component, PluginComponent
-from .registry import component_requires, component_internals, component_str, component_initialized, clean_module_name
+from .registry import component_internals, component_str, component_initialized, clean_module_name
 
 if TYPE_CHECKING:
     from ..container import ContainerInterface
@@ -36,14 +36,8 @@ async def initialize_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
-        if any(not component_internals(required).is_initialized
-               for required in component_requires(comp)
-               if required not in components
-               ):
-            logger.debug("Component dependencies not initialized: %s v%s",
-                         comp.__metadata__['name'],
-                         comp.__metadata__['version'])
-            return
+        # Note: Dependency initialization check is handled by registration order.
+        # component_requires() returns component names (strings), not objects.
 
         await emit(comp, ComponentEvent.BEFORE_INITIALIZE)
 

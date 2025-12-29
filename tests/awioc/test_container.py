@@ -293,7 +293,7 @@ class TestContainerInterfacePrivateMethods:
         assert comp.__metadata__["_internals"].registration == registration
 
     def test_init_component_with_requirements(self, interface):
-        """Test __init_component initializes requirements."""
+        """Test __init_component links to already-registered requirements."""
         dep = type("Dep", (), {
             "__metadata__": {
                 "name": "dep",
@@ -306,11 +306,17 @@ class TestContainerInterfacePrivateMethods:
             "__metadata__": {
                 "name": "comp",
                 "version": "1.0.0",
-                "requires": {dep}
+                "requires": {"dep"}  # Uses name instead of object
             }
         })()
 
         registration = RegistrationInfo(registered_by="test", registered_at=datetime.now())
+
+        # Register dep first so it's available when comp is initialized
+        interface._ContainerInterface__init_component(dep, registration)
+        interface._container.components()["dep"] = providers.Object(dep)
+
+        # Now init comp which requires "dep"
         interface._ContainerInterface__init_component(comp, registration)
 
         assert "_internals" in dep.__metadata__

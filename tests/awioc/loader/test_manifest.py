@@ -373,7 +373,7 @@ class TestManifestToMetadata:
 
         metadata = manifest_to_metadata(entry, manifest_path)
 
-        assert metadata["_requires_names"] == ["dep1", "dep2"]
+        assert metadata["requires"] == {"dep1", "dep2"}
 
     def test_metadata_with_config_refs(self, temp_dir):
         """Test converting entry with config refs."""

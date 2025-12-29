@@ -1,6 +1,4 @@
 import pytest
-import asyncio
-import logging
 
 from src.awioc.components.lifecycle import (
     initialize_components,
@@ -94,7 +92,12 @@ class TestInitializeComponents:
 
     @pytest.mark.asyncio
     async def test_initialize_with_dependency(self):
-        """Test initializing component with uninitialized dependency."""
+        """Test initializing component that declares dependencies by name.
+
+        Note: Dependencies are now declared by name (strings). The actual
+        dependency initialization order is managed by registration order,
+        not by initialize_components checking dependency status.
+        """
         dep = type("Dep", (), {
             "__metadata__": {
                 "name": "dep",
@@ -110,18 +113,19 @@ class TestInitializeComponents:
             "__metadata__": {
                 "name": "comp",
                 "version": "1.0.0",
-                "requires": {dep},
+                "requires": {"dep"},  # Name-based requires
                 "_internals": Internals()
             },
             "initialize": None,
             "shutdown": None
         })()
 
-        # Dependency not initialized, so comp shouldn't initialize
+        # Initialize the component - it will initialize regardless of dependency status
+        # because dependency order is handled at registration time, not initialization
         result = await initialize_components(comp)
 
-        # Should not be initialized because dep is not initialized
-        assert comp.__metadata__["_internals"].is_initialized is False
+        # Component should be initialized
+        assert comp.__metadata__["_internals"].is_initialized is True
 
     @pytest.mark.asyncio
     async def test_initialize_aborted(self):

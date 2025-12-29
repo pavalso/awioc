@@ -905,7 +905,7 @@ class TestGetLibraryEdgeCases:
             __metadata__ = {
                 "name": "extended_lib",
                 "version": "1.0.0",
-                "requires": {core_lib},  # Dependency declared here
+                "requires": {"core_lib"},  # Dependency declared by name
                 "wire": False,
             }
             initialize = None
@@ -934,8 +934,14 @@ class TestGetLibraryEdgeCases:
         })()
 
         interface.set_app(app)
-        # When registering extended_lib, core_lib's internals are initialized through dependency chain
-        # We only register the extended_lib; core_lib is handled as a dependency
+
+        # Register core_lib first with its component name as the key
+        # This allows extended_lib to find it by name when "core_lib" is looked up
+        interface.register_libraries(
+            ("core_lib", core_lib),
+        )
+
+        # Now register extended_lib which requires "core_lib"
         interface.register_libraries(
             (ExtendedLibrary, extended_lib),
         )
@@ -946,6 +952,10 @@ class TestGetLibraryEdgeCases:
 
         # The dependency (core_lib) should have its internals initialized
         assert "_internals" in core_lib.__metadata__
+
+        # extended_lib should be tracked in core_lib's required_by
+        from src.awioc.components.registry import component_internals
+        assert extended_lib in component_internals(core_lib).required_by
 
 
 class TestGetPluginFunction:

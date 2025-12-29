@@ -232,8 +232,9 @@ class TestMetadataFunction:
         assert isinstance(meta["wirings"], set)
 
     def test_metadata_with_requires_list(self):
-        """Test metadata with requires as a list (converts to set)."""
-        mock_component = type("MockComponent", (), {"__metadata__": {}})()
+        """Test metadata with requires as a list (converts types to names)."""
+        # Component with metadata containing name
+        mock_component = type("MockComponent", (), {"__metadata__": {"name": "dep_component"}})()
 
         meta = metadata(
             name="test",
@@ -241,7 +242,20 @@ class TestMetadataFunction:
             description="Test",
             requires=[mock_component]
         )
-        assert mock_component in meta["requires"]
+        # Component types are converted to their names
+        assert "dep_component" in meta["requires"]
+        assert isinstance(meta["requires"], set)
+
+    def test_metadata_with_requires_string_names(self):
+        """Test metadata with requires as string names directly."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            requires=["dep1", "dep2"]
+        )
+        assert "dep1" in meta["requires"]
+        assert "dep2" in meta["requires"]
         assert isinstance(meta["requires"], set)
 
     def test_metadata_with_single_config_model(self):

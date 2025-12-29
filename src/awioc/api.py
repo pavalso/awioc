@@ -39,6 +39,7 @@ from .components.protocols import (
 )
 from .components.registry import (
     as_component,
+    component_required_by,
     component_requires,
     component_internals,
     component_str,
@@ -78,6 +79,7 @@ __all__ = [
     "RegistrationInfo",
     "metadata",
     "as_component",
+    "component_required_by",
     "component_requires",
     "component_internals",
     "component_str",
