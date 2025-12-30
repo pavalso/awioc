@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>IOC Management Dashboard</title>
+    <link href="static/styles.css" rel="stylesheet">
+</head>
+<body>
+
+<!-- TOP PANEL -->
+<div class="top-panel">
+    <div class="app-branding">
+        <h1>IOC Management Dashboard</h1>
+    </div>
+    <div class="app-info" id="appInfo">
+        <div class="app-info-item">
+            <span class="label">App:</span>
+            <span class="value" id="appName">-</span>
+        </div>
+        <div class="app-info-item">
+            <span class="label">Version:</span>
+            <span class="value" id="appVersion">-</span>
+        </div>
+        <div class="app-info-item">
+            <span class="label">Config:</span>
+            <span class="value" id="appConfig">-</span>
+        </div>
+    </div>
+    <div class="app-stats" id="appStats">
+        <div class="stat-badge">
+            <span class="stat-value" id="statComponents">0</span>
+            <span class="stat-label">Components</span>
+        </div>
+        <div class="stat-badge">
+            <span class="stat-value" id="statPlugins">0</span>
+            <span class="stat-label">Plugins</span>
+        </div>
+    </div>
+    <div class="connection-status connecting" id="connectionStatus">
+        <span class="status-dot connecting"></span>
+        <span>Connecting...</span>
+    </div>
+</div>
+
+<!-- MAIN LAYOUT -->
+<div class="main-layout">
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+        <div class="left-panel-header">
+            <h2>Components</h2>
+            <div class="filters-row">
+                <input id="itemSearch" oninput="renderAllSections()" placeholder="Search..." type="text">
+                <select id="itemStatus" onchange="renderAllSections()">
+                    <option value="">All</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                </select>
+            </div>
+        </div>
+        <div class="left-panel-content">
+            <!-- Application Section -->
+            <div class="section-header">
+                <h3>Application</h3>
+                <span class="section-count" id="appCount">0</span>
+            </div>
+            <div class="component-list" id="appSection"></div>
+
+            <!-- Libraries Section -->
+            <div class="section-header">
+                <h3>Libraries</h3>
+                <span class="section-count" id="libCount">0</span>
+            </div>
+            <div class="component-list" id="librariesSection"></div>
+
+            <!-- Plugins Section -->
+            <div class="section-header">
+                <h3>Plugins</h3>
+                <span class="section-count" id="pluginCount">0</span>
+            </div>
+            <div class="component-list" id="pluginsSection"></div>
+
+            <!-- Discovered Plugins Section -->
+            <div class="section-header" id="discoveredHeader" style="display:none;">
+                <h3 style="color:#ff9800;">Discovered</h3>
+                <span class="section-count" id="discoveredCount" style="background:#ff9800;">0</span>
+            </div>
+            <div class="component-list" id="discoveredSection"></div>
+
+            <div class="upload-section">
+                <input accept=".py" id="pluginFile" multiple onchange="uploadPluginFile()" style="display:none"
+                       type="file">
+                <input id="pluginDir" onchange="uploadPluginDirectory()" style="display:none" type="file"
+                       webkitdirectory>
+
+                <div class="upload-dropzone" id="uploadDropzone"
+                     onclick="document.getElementById('pluginFile').click()"
+                     ondragleave="handleDragLeave(event)"
+                     ondragover="handleDragOver(event)"
+                     ondrop="handleDrop(event)">
+                    <div class="upload-dropzone-icon">+</div>
+                    <div class="upload-dropzone-text">
+                        <strong>Drop plugin files here</strong><br>
+                        or click to browse
+                    </div>
+                </div>
+
+                <div class="upload-buttons">
+                    <button class="btn btn-enable" onclick="document.getElementById('pluginFile').click()">File</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('pluginDir').click()">Folder
+                    </button>
+                </div>
+
+                <span class="upload-status" id="uploadStatus"></span>
+
+                <div class="plugin-actions">
+                    <button class="btn btn-secondary" onclick="syncPlugins()"
+                            title="Sync plugins from upload directory">Sync
+                    </button>
+                    <button class="btn btn-secondary" onclick="savePlugins()" title="Save current plugins to ioc.yaml">
+                        Save
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pot Browser Section -->
+            <div class="section-header" onclick="togglePotBrowser()" style="margin-top: 20px; cursor: pointer;">
+                <h3 style="color:#9c27b0;">Pot Browser</h3>
+                <span class="section-count" id="potCount" style="background:#9c27b0;">0</span>
+            </div>
+            <div id="potBrowserSection" style="display:none;">
+                <div class="pot-browser-toolbar" style="display:flex; gap:8px; margin-bottom:10px;">
+                    <button class="btn btn-secondary" onclick="refreshPots()" title="Refresh pot list">
+                        Refresh
+                    </button>
+                </div>
+                <div class="component-list" id="potsList"></div>
+                <div class="component-list" id="potComponentsList"
+                     style="display:none; margin-top:10px; padding:10px; background:#1a1a2e; border-radius:8px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+        <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('details')">Details</button>
+            <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+        </div>
+
+        <!-- Details Tab -->
+        <div class="tab-content active" id="tab-details">
+            <div class="details-content">
+                <div class="details-header">
+                    <div>
+                        <div class="details-title" id="panelTitle">Select a component</div>
+                        <div class="details-version" id="panelVersion"></div>
+                    </div>
+                    <div class="details-actions" id="panelActions"></div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">Description</div>
+                    <div class="panel-desc" id="panelDesc">Select a component from the left panel to view its details.
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">Details</div>
+                    <div class="panel-meta-grid">
+                        <div class="panel-meta-item">
+                            <span class="label">Kind</span>
+                            <span class="value" id="panelKind">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Type</span>
+                            <span class="value" id="panelType">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Status</span>
+                            <span class="value" id="panelStatus">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Auto-wire</span>
+                            <span class="value" id="panelWire">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section" id="panelInternalsSection">
+                    <div class="panel-section-title">Dependencies</div>
+                    <div id="panelDependencies">
+                        <span style="color: #666; font-size: 0.9em;">No dependencies</span>
+                    </div>
+                </div>
+
+                <div class="panel-section" id="panelRegistrationSection">
+                    <div class="panel-section-title">Registration</div>
+                    <div class="panel-meta-grid">
+                        <div class="panel-meta-item">
+                            <span class="label">Registered by</span>
+                            <span class="value" id="panelRegisteredBy">-</span>
+                        </div>
+                        <div class="panel-meta-item">
+                            <span class="label">Registered at</span>
+                            <span class="value" id="panelRegisteredAt">-</span>
+                        </div>
+                        <div class="panel-meta-item" id="panelRegistrationFileItem" style="display:none;">
+                            <span class="label">Source</span>
+                            <span class="value" id="panelRegistrationFile">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section" id="panelConfigSection" style="display:none;">
+                    <div class="panel-section-title">Configuration</div>
+                    <div class="config-tabs" id="configTabs" style="display:none;"></div>
+                    <div class="config-form" id="panelConfigForm"></div>
+                    <div class="config-actions">
+                        <select id="configTargetFile"
+                                style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:10px 12px;color:#eee;font-size:0.9em;margin-right:8px;">
+                            <option value="yaml">YAML Config</option>
+                            <option value="env">.env</option>
+                        </select>
+                        <button class="btn btn-enable" id="saveConfigBtn" onclick="saveConfig()">Save Configuration
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-content" id="tab-logs">
+            <div class="logs-content">
+                <div class="logs-toolbar">
+                    <div class="logs-filters">
+                        <input id="logSearch" oninput="filterLogs()" placeholder="Search logs..." type="text">
+                        <select id="logLevel" onchange="filterLogs()">
+                            <option value="">All Levels</option>
+                            <option value="DEBUG">DEBUG</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="CRITICAL">CRITICAL</option>
+                        </select>
+                    </div>
+                    <div class="logs-actions">
+                        <span class="log-count" id="logCount">0 logs</span>
+                        <label class="auto-scroll-indicator">
+                            <input checked id="autoScroll" type="checkbox"> Auto-scroll
+                        </label>
+                        <button class="btn btn-secondary" onclick="requestLogs()">Reload</button>
+                        <button class="btn btn-danger" onclick="clearLogs()">Clear</button>
+                    </div>
+                </div>
+                <div class="logs-container" id="logsContainer">
+                    <div class="no-logs">No logs yet...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="static/app.js"></script>
+</body>
+</html>

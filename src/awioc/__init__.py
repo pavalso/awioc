@@ -8,16 +8,18 @@ Consumers should import from here for stable API access.
 from .api import (
     # Bootstrap
     initialize_ioc_app,
-    create_container,
     compile_ioc_app,
     reconfigure_ioc_app,
-    reload_configuration,
     # Lifecycle
     initialize_components,
     shutdown_components,
     wait_for_components,
     register_plugin,
     unregister_plugin,
+    # Events
+    ComponentEvent,
+    on_event,
+    clear_event_handlers,
     # DI Providers
     get_library,
     get_config,
@@ -25,6 +27,8 @@ from .api import (
     get_raw_container,
     get_app,
     get_logger,
+    get_plugin,
+    get_component,
     wire,
     inject,
     # Config
@@ -45,29 +49,43 @@ from .api import (
     ComponentMetadata,
     AppMetadata,
     ComponentTypes,
+    RegistrationInfo,
+    metadata,
     as_component,
     component_requires,
+    component_required_by,
     component_internals,
     component_str,
+    component_registration,
     # Loader
     compile_component,
     # Logging
     setup_logging,
 )
 
+from .project import (
+    # Project API
+    AWIOCProject,
+    is_awioc_project,
+    open_project,
+    create_project,
+)
+
 __all__ = [
     # Bootstrap
     "initialize_ioc_app",
-    "create_container",
     "compile_ioc_app",
     "reconfigure_ioc_app",
-    "reload_configuration",
     # Lifecycle
     "initialize_components",
     "shutdown_components",
     "wait_for_components",
     "register_plugin",
     "unregister_plugin",
+    # Events
+    "ComponentEvent",
+    "on_event",
+    "clear_event_handlers",
     # DI Providers
     "get_library",
     "get_config",
@@ -75,6 +93,8 @@ __all__ = [
     "get_raw_container",
     "get_app",
     "get_logger",
+    "get_plugin",
+    "get_component",
     "wire",
     "inject",
     # Config
@@ -95,12 +115,21 @@ __all__ = [
     "ComponentMetadata",
     "AppMetadata",
     "ComponentTypes",
+    "RegistrationInfo",
+    "metadata",
     "as_component",
+    "component_required_by",
     "component_requires",
     "component_internals",
     "component_str",
+    "component_registration",
     # Loader
     "compile_component",
     # Logging
     "setup_logging",
+    # Project API
+    "AWIOCProject",
+    "is_awioc_project",
+    "open_project",
+    "create_project",
 ]

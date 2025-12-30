@@ -1,39 +1,22 @@
 import logging
+from pathlib import Path
 from typing import Iterable
 
 from dependency_injector import providers
+from pydantic_settings import YamlConfigSettingsSource, DotEnvSettingsSource
 
 logger = logging.getLogger(__name__)
 
+from .components.registry import component_internals
 from .components.protocols import Component
-from .config.base import Settings
-from .config.loaders import load_file
-from .config.models import IOCComponentsDefinition, IOCBaseConfig
-from .config.setup import setup_logging
+from .config.models import IOCBaseConfig
 from .container import AppContainer, ContainerInterface
 from .di.wiring import wire, inject_dependencies
-from .loader.module_loader import compile_component
-from .utils import deep_update
+from .loader.module_loader import compile_component, compile_components_from_manifest
+from .loader.manifest import has_awioc_dir
 
 
-def create_container(
-        container_cls=AppContainer
-) -> ContainerInterface:
-    """
-    Create and return an instance of the application container.
-
-    :param container_cls: The class of the container to instantiate.
-    :return: An instance of the application container.
-    """
-    logger.debug("Creating container with class: %s", container_cls.__name__)
-    container = container_cls()
-    container.config.override(providers.Singleton(Settings))
-    container.logger.override(providers.Singleton(logging.getLogger))
-    logger.debug("Container created successfully")
-    return ContainerInterface(container=container)
-
-
-def initialize_ioc_app() -> ContainerInterface:  # pragma: no cover
+def initialize_ioc_app() -> ContainerInterface:  # TODO: add test coverage
     """
     Initialize the IOC application.
 
@@ -43,34 +26,103 @@ def initialize_ioc_app() -> ContainerInterface:  # pragma: no cover
     :return: The initialized container interface.
     """
     logger.info("Initializing IOC application")
-    ioc_config_env = IOCBaseConfig.load_config()
-    logger.debug("Loaded IOC base configuration")
+    ioc_config = IOCBaseConfig()  # Initial load to get context and config path from .env and CLI
 
-    if ioc_config_env.context:
-        logger.debug("Loading context-specific configuration: %s", ioc_config_env.context)
-        ioc_config_env.model_config["env_file"] = f".{ioc_config_env.context}.env"
-        ioc_config_context = ioc_config_env.load_config()
+    if ioc_config.context:
+        logger.debug("Loading context-specific configuration for context: %s", ioc_config.context)
+
+        IOCBaseConfig.add_sources(lambda x: DotEnvSettingsSource(
+            x,
+            env_file=f".{ioc_config.context}.env"
+        ))
+
+        ioc_config = IOCBaseConfig(
+            context=ioc_config.context
+        )  # Reload to apply context-specific settings
     else:
-        ioc_config_context = ioc_config_env
+        logger.debug("No context provided; using default environment configuration")
 
-    logger.debug("Loading config file: %s", ioc_config_context.config_path)
-    file_data = load_file(ioc_config_context.config_path)
+    if ioc_config.config_path:
+        logger.debug("Loading configuration from: %s", ioc_config.config_path)
 
-    ioc_components_definition = IOCComponentsDefinition.model_validate(file_data)
-    logger.debug("Validated components definition")
+        IOCBaseConfig.add_sources(lambda x: YamlConfigSettingsSource(
+            x,
+            yaml_file=ioc_config.config_path
+        ))
 
-    logger.debug("Compiling app component: %s", ioc_components_definition.app)
-    app = compile_component(ioc_components_definition.app)
+        ioc_config = IOCBaseConfig(
+            context=ioc_config.context,
+            config_path=ioc_config.config_path
+        )  # Final load to apply YAML configuration
+    else:
+        logger.debug("No config path provided; skipping YAML configuration loading")
 
-    logger.debug("Compiling %d plugins", len(ioc_components_definition.plugins))
-    plugins = {
-        compile_component(plugin_name)
-        for plugin_name in ioc_components_definition.plugins
-    }
-    logger.debug("Compiling %d libraries", len(ioc_components_definition.libraries))
+    return compile_ioc_app(ioc_config)
+
+
+def _is_manifest_directory(plugin_ref: str) -> bool:
+    """Check if a plugin reference points to a directory with .awioc/manifest.yaml."""
+    # Skip pot references
+    if plugin_ref.startswith("@"):
+        return False
+
+    # Check if it's a directory with .awioc/manifest.yaml
+    path = Path(plugin_ref)
+    if path.is_dir():
+        return has_awioc_dir(path)
+
+    return False
+
+
+def compile_ioc_app(  # TODO: add test coverage
+        ioc_config: IOCBaseConfig
+) -> ContainerInterface:
+    """
+    Compile the IOC application using the provided container interface.
+
+    Supports both single-file plugins and directory-based plugins with .awioc/manifest.yaml.
+    When a plugin reference is a directory containing .awioc/manifest.yaml, all components
+    defined in that manifest will be loaded.
+
+    :param ioc_config: The IOC configuration.
+    """
+    assert ioc_config is not None
+    assert ioc_config.ioc_components_definitions is not None
+
+    logger.info("Compiling IOC application")
+
+    ioc_components_definitions = ioc_config.ioc_components_definitions
+
+    logger.debug("Got components definition: %s", ioc_config.ioc_components_definitions)
+
+    app = compile_component(ioc_components_definitions.app)
+
+    # Compile plugins with error handling - missing plugins are skipped with a warning
+    plugins = set()
+    for plugin_ref in ioc_components_definitions.plugins:
+        try:
+            # Check if this is a directory with manifest.yaml
+            if _is_manifest_directory(plugin_ref):
+                logger.debug("Loading plugins from manifest directory: %s", plugin_ref)
+                directory_plugins = compile_components_from_manifest(Path(plugin_ref))
+                plugins.update(directory_plugins)
+                logger.debug(
+                    "Loaded %d plugin(s) from %s",
+                    len(directory_plugins),
+                    plugin_ref
+                )
+            else:
+                # Single plugin file or pot reference
+                plugin = compile_component(plugin_ref)
+                plugins.add(plugin)
+        except FileNotFoundError:
+            logger.warning("Plugin not found, skipping: %s", plugin_ref)
+        except Exception as e:
+            logger.error("Failed to compile plugin '%s': %s", plugin_ref, e, exc_info=True)
+
     libraries = {
         id_: compile_component(library_name)
-        for id_, library_name in ioc_components_definition.libraries.items()
+        for id_, library_name in ioc_components_definitions.libraries.items()
     }
 
     container = AppContainer()
@@ -85,92 +137,36 @@ def initialize_ioc_app() -> ContainerInterface:  # pragma: no cover
     if plugins:
         api_container.register_plugins(*plugins)
 
-    app_internals = app.__metadata__["_internals"]
+    app_internals = component_internals(app)
     assert app_internals is not None
 
-    app_internals.ioc_components_definition = ioc_components_definition
-    app_internals.ioc_config = ioc_config_context
+    app_internals.ioc_config = ioc_config
 
-    logger.info("IOC application initialized successfully")
-    return api_container
-
-
-def compile_ioc_app(ioc_api: ContainerInterface):  # pragma: no cover
-    """
-    Compile the IOC application by reconfiguring all components.
-
-    :param ioc_api: The container interface.
-    """
-    logger.info("Compiling IOC application")
-    reconfigure_ioc_app(ioc_api, components=ioc_api.components)
-    logger.info("IOC application compiled successfully")
+    return reconfigure_ioc_app(api_container, components=api_container.components)
 
 
 def reconfigure_ioc_app(
-        ioc_api: ContainerInterface,
+        api_container: ContainerInterface,
         components: Iterable[Component]
-):
+) -> ContainerInterface:
     """
-    Reconfigure the IOC application with the given components.
-
-    :param ioc_api: The container interface.
-    :param components: Components to reconfigure.
-    """
-    logger.debug("Reconfiguring IOC application")
-    inject_dependencies(ioc_api, components=components)
-
-    base_config = ioc_api.app_config_model
-    ioc_config = ioc_api.ioc_config_model
-
-    base_config.model_config = ioc_config.model_config
-    env_config = base_config.load_config()
-    logger.debug("Loaded environment configuration: %s", type(env_config).__name__)
-
-    config_file_content = load_file(ioc_config.config_path)
-
-    file_config = env_config.model_validate(config_file_content)
-    logger.debug("Validated file configuration")
-
-    validated_config = env_config.model_validate(
-        deep_update(
-            file_config.model_dump(exclude_unset=True, by_alias=True),
-            env_config.model_dump(exclude_unset=True, by_alias=True)
-        )
-    )
-
-    ioc_api.set_config(validated_config)
-    logger.debug("Wiring components")
-    wire(ioc_api, components=components)
-    logger.debug("Reconfiguration complete")
-
-
-def reload_configuration(api_container: ContainerInterface):  # pragma: no cover
-    """
-    Reload configuration for the container.
+    Reconfigure given components in the IOC application.
 
     :param api_container: The container interface.
+    :param components: Components to reconfigure.
     """
-    logger.info("Reloading configuration")
-    raw_container = api_container.raw_container()
+    logger.info("Configuring IOC application")
 
-    raw_container.config.reset_override()
-    raw_container.logger.reset_override()
-    logger.debug("Reset container overrides")
+    inject_dependencies(api_container, components=components)
 
-    inject_dependencies(api_container)
-
-    # Setup configuration
     base_config = api_container.app_config_model
-    ioc_config = api_container.ioc_config_model
-    base_config.model_config = ioc_config.model_config
+    base_config.model_config = api_container.ioc_config_model.model_config
+
     config = base_config.load_config()
-    logger.debug("Loaded configuration: %s", type(config).__name__)
+    logger.debug("Loaded application configuration: %s", config)
 
-    raw_container.config.override(config)
-    raw_container.wire((__name__,))
+    api_container.set_config(config)
 
-    new_logger = setup_logging()
-    raw_container.logger.override(new_logger)
+    wire(api_container, components=components)
 
-    wire(api_container)
-    logger.info("Configuration reloaded successfully")
+    return api_container

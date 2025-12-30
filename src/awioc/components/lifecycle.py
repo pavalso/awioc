@@ -1,11 +1,13 @@
 import asyncio
 import inspect
 import logging
-
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from .events import emit, ComponentEvent
+from .metadata import RegistrationInfo
 from .protocols import Component, PluginComponent
-from .registry import component_requires, component_internals, component_str
+from .registry import component_internals, component_str, component_initialized, clean_module_name
 
 if TYPE_CHECKING:
     from ..container import ContainerInterface
@@ -34,14 +36,11 @@ async def initialize_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
-        if any(not component_internals(required).is_initialized
-               for required in component_requires(comp)
-               if required not in components
-               ):
-            logger.debug("Component dependencies not initialized: %s v%s",
-                         comp.__metadata__['name'],
-                         comp.__metadata__['version'])
-            return
+        # Note: Dependency initialization check is handled by registration order.
+        # component_requires() returns component names (strings), not objects.
+
+        await emit(comp, ComponentEvent.BEFORE_INITIALIZE)
+
         if hasattr(comp, "initialize") and comp.initialize is not None:
             logger.debug("Initializing component: %s v%s",
                          comp.__metadata__['name'],
@@ -63,6 +62,8 @@ async def initialize_components(
         logger.debug("Component initialized: %s v%s",
                      comp.__metadata__['name'],
                      comp.__metadata__['version'])
+
+        await emit(comp, ComponentEvent.AFTER_INITIALIZE)
 
     _ret = await asyncio.gather(
         *map(__initialize, components),
@@ -113,6 +114,9 @@ async def shutdown_components(
                          comp.__metadata__['name'],
                          comp.__metadata__['version'])
             return
+
+        await emit(comp, ComponentEvent.BEFORE_SHUTDOWN)
+
         if hasattr(comp, "shutdown") and comp.shutdown is not None:
             logger.debug("Shutting down component: %s v%s",
                          comp.__metadata__['name'],
@@ -131,6 +135,8 @@ async def shutdown_components(
                      comp.__metadata__['name'],
                      comp.__metadata__['version'])
 
+        await emit(comp, ComponentEvent.AFTER_SHUTDOWN)
+
     _ret = await asyncio.gather(
         *map(__shutdown, components),
         return_exceptions=return_exceptions
@@ -138,15 +144,32 @@ async def shutdown_components(
 
     _exceptions = [_exc for _exc in _ret if isinstance(_exc, Exception)]
 
-    if _exceptions:
-        if not return_exceptions:  # pragma: no cover
-            raise ExceptionGroup(
-                "One or more errors occurred during component shutdown.",
-                _exceptions
-            )
+    if return_exceptions:
         return _exceptions
 
+    if _exceptions:  # TODO: add test coverage
+        raise ExceptionGroup(
+            "One or more errors occurred during component shutdown.",
+            _exceptions
+        )
+
     return components
+
+
+def _find_caller_frame() -> inspect.FrameInfo:
+    """Find the actual caller frame, skipping internal/injector frames."""
+    skip_modules = {
+        "dependency_injector.wiring",
+        "awioc.components.lifecycle",
+    }
+
+    for frame in inspect.stack()[1:]:
+        module_name = frame.frame.f_globals.get("__name__", "")
+        if module_name not in skip_modules:
+            return frame
+
+    # Fallback to immediate caller if nothing found
+    return inspect.stack()[1]  # TODO: add test coverage
 
 
 async def register_plugin(
@@ -159,7 +182,7 @@ async def register_plugin(
     :param api_container: The application container.
     :param plugin: The plugin component to register.
     """
-    caller_frame = inspect.stack()[2]  # Get the frame of the caller of register_plugin. Avoid Inject frame.
+    caller_frame = _find_caller_frame()
 
     if plugin in api_container.provided_plugins():
         logger.warning("Plugin already registered: %s v%s [From: %s.%s]",
@@ -169,16 +192,22 @@ async def register_plugin(
                        caller_frame.lineno)
         return plugin
 
-    api_container.register_plugins(plugin)
+    # Capture registration info from the actual caller (the component that called register_plugin)
+    module_name = caller_frame.frame.f_globals.get("__name__", "unknown")
+    registration = RegistrationInfo(
+        registered_by=clean_module_name(module_name),
+        registered_at=datetime.now(),
+        file=caller_frame.filename,
+        line=caller_frame.lineno
+    )
+
+    api_container.register_plugins(plugin, _registration=registration)
 
     logger.debug("Registering plugin: %s v%s [From: %s.%s]",
                  plugin.__metadata__['name'],
                  plugin.__metadata__['version'],
                  caller_frame.filename,
                  caller_frame.lineno)
-
-    from ..di.wiring import wire
-    wire(api_container, components=(plugin,))
 
     return plugin
 
@@ -244,7 +273,9 @@ async def unregister_plugin(
                        caller_frame.lineno)
         return
 
-    if component_internals(plugin).required_by:
+    if any(component_initialized(requirer)
+           for requirer
+           in component_internals(plugin).required_by):
         raise RuntimeError(
             f"Cannot unregister plugin {component_str(plugin)}; "
             "it is still required by other components"

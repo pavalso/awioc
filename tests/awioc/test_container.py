@@ -1,8 +1,10 @@
 import logging
+from datetime import datetime
 
 import pytest
 from dependency_injector import providers
-from src.awioc.components.metadata import Internals, ComponentTypes
+
+from src.awioc.components.metadata import Internals, ComponentTypes, RegistrationInfo
 from src.awioc.config.base import Settings
 from src.awioc.config.models import IOCBaseConfig
 from src.awioc.container import AppContainer, ContainerInterface
@@ -66,7 +68,6 @@ class TestContainerInterface:
                 "name": "test_app",
                 "version": "1.0.0",
                 "description": "Test app",
-                "base_config": Settings,
                 "requires": set()
             }
 
@@ -206,7 +207,7 @@ class TestContainerInterface:
         interface.set_app(mock_app)
 
         config_model = interface.app_config_model
-        assert config_model == Settings
+        assert config_model is IOCBaseConfig
 
     def test_app_config_model_returns_default_when_not_defined(self, interface):
         """Test app_config_model raises when not defined."""
@@ -284,13 +285,15 @@ class TestContainerInterfacePrivateMethods:
             }
 
         comp = Component()
-        interface._ContainerInterface__init_component(comp)
+        registration = RegistrationInfo(registered_by="test", registered_at=datetime.now())
+        interface._ContainerInterface__init_component(comp, registration)
 
         assert "_internals" in comp.__metadata__
         assert isinstance(comp.__metadata__["_internals"], Internals)
+        assert comp.__metadata__["_internals"].registration == registration
 
     def test_init_component_with_requirements(self, interface):
-        """Test __init_component initializes requirements."""
+        """Test __init_component links to already-registered requirements."""
         dep = type("Dep", (), {
             "__metadata__": {
                 "name": "dep",
@@ -303,11 +306,18 @@ class TestContainerInterfacePrivateMethods:
             "__metadata__": {
                 "name": "comp",
                 "version": "1.0.0",
-                "requires": {dep}
+                "requires": {"dep"}  # Uses name instead of object
             }
         })()
 
-        interface._ContainerInterface__init_component(comp)
+        registration = RegistrationInfo(registered_by="test", registered_at=datetime.now())
+
+        # Register dep first so it's available when comp is initialized
+        interface._ContainerInterface__init_component(dep, registration)
+        interface._container.components()["dep"] = providers.Object(dep)
+
+        # Now init comp which requires "dep"
+        interface._ContainerInterface__init_component(comp, registration)
 
         assert "_internals" in dep.__metadata__
         assert comp in dep.__metadata__["_internals"].required_by
@@ -326,3 +336,156 @@ class TestContainerInterfacePrivateMethods:
         interface._ContainerInterface__deinit_component(comp)
 
         assert comp.__metadata__["_internals"] is None
+
+
+class TestContainerInterfaceProviders:
+    """Tests for ContainerInterface provider methods."""
+
+    @pytest.fixture
+    def interface(self):
+        """Create a ContainerInterface for testing."""
+        return ContainerInterface(AppContainer())
+
+    def test_provided_lib_with_string(self, interface):
+        """Test provided_lib with string type."""
+
+        class TestLib:
+            __metadata__ = {
+                "name": "test_lib",
+                "version": "1.0.0",
+                "description": "Test library",
+                "requires": set()
+            }
+            initialize = None
+            shutdown = None
+
+        lib_instance = TestLib()
+        interface.register_libraries(("my_string_key", lib_instance))
+
+        result = interface.provided_lib("my_string_key")
+        assert result is lib_instance
+
+    def test_provided_plugin_with_string(self, interface):
+        """Test provided_plugin with string type."""
+
+        class TestPlugin:
+            __metadata__ = {
+                "name": "test_plugin",
+                "version": "1.0.0",
+                "description": "Test plugin",
+                "requires": set()
+            }
+            initialize = None
+            shutdown = None
+
+        plugin = TestPlugin()
+        interface.register_plugins(plugin)
+
+        result = interface.provided_plugin("test_plugin")
+        assert result is plugin
+
+    def test_provided_plugin_with_type(self, interface):
+        """Test provided_plugin with component type (not string)."""
+
+        class TestPlugin:
+            __metadata__ = {
+                "name": "typed_plugin",
+                "version": "1.0.0",
+                "description": "Test plugin",
+                "requires": set()
+            }
+            initialize = None
+            shutdown = None
+
+        plugin = TestPlugin()
+        interface.register_plugins(plugin)
+
+        # Pass the instance itself (has __metadata__["name"])
+        result = interface.provided_plugin(plugin)
+        assert result is plugin
+
+    def test_provided_plugin_not_found(self, interface):
+        """Test provided_plugin returns None when not found."""
+        result = interface.provided_plugin("nonexistent")
+        assert result is None
+
+    def test_provided_component_with_name(self, interface):
+        """Test provided_component with name."""
+
+        class TestComp:
+            __metadata__ = {
+                "name": "test_comp",
+                "version": "1.0.0",
+                "requires": set()
+            }
+            initialize = None
+            shutdown = None
+
+        interface.set_app(TestComp())
+
+        result = interface.provided_component("test_comp")
+        assert result is not None
+        assert result.__metadata__["name"] == "test_comp"
+
+    def test_provided_component_not_found(self, interface):
+        """Test provided_component returns None when not found."""
+        result = interface.provided_component("nonexistent")
+        assert result is None
+
+
+class TestContainerInterfaceDeinit:
+    """Tests for __deinit_component edge cases."""
+
+    @pytest.fixture
+    def interface(self):
+        """Create a ContainerInterface for testing."""
+        return ContainerInterface(AppContainer())
+
+    def test_deinit_component_no_internals(self, interface):
+        """Test __deinit_component when component has no _internals."""
+        comp = type("Comp", (), {
+            "__metadata__": {
+                "name": "comp",
+                "version": "1.0.0",
+                "requires": set()
+            }
+        })()
+
+        # Should not raise
+        interface._ContainerInterface__deinit_component(comp)
+
+    def test_deinit_component_none_internals(self, interface):
+        """Test __deinit_component when _internals is None."""
+        comp = type("Comp", (), {
+            "__metadata__": {
+                "name": "comp",
+                "version": "1.0.0",
+                "requires": set(),
+                "_internals": None
+            }
+        })()
+
+        # Should not raise
+        interface._ContainerInterface__deinit_component(comp)
+
+    def test_deinit_component_with_uninitialized_requirement(self, interface):
+        """Test __deinit_component with requirement that's not initialized."""
+        dep = type("Dep", (), {
+            "__metadata__": {
+                "name": "dep",
+                "version": "1.0.0",
+                "requires": set()
+            }
+        })()
+
+        comp = type("Comp", (), {
+            "__metadata__": {
+                "name": "comp",
+                "version": "1.0.0",
+                "requires": {dep},
+                "_internals": Internals()
+            }
+        })()
+
+        # Should not raise even if dep has no _internals
+        interface._ContainerInterface__deinit_component(comp)

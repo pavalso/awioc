@@ -1,9 +1,16 @@
+from .lifecycle import (
+    initialize_components,
+    shutdown_components,
+    register_plugin,
+    unregister_plugin,
+)
 from .metadata import (
     ComponentTypes,
     Internals,
     ComponentMetadata,
     AppMetadata,
     ComponentMetadataType,
+    metadata
 )
 from .protocols import (
     Component,
@@ -17,12 +24,6 @@ from .registry import (
     component_internals,
     component_str,
 )
-from .lifecycle import (
-    initialize_components,
-    shutdown_components,
-    register_plugin,
-    unregister_plugin,
-)
 
 __all__ = [
     "ComponentTypes",
@@ -30,6 +31,7 @@ __all__ = [
     "ComponentMetadata",
     "AppMetadata",
     "ComponentMetadataType",
+    "metadata",
     "Component",
     "AppComponent",
     "PluginComponent",

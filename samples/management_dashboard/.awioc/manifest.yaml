@@ -1,0 +1,15 @@
+manifest_version: '1.0'
+name: management_dashboard
+version: 1.0.0
+description: Auto-generated manifest for management_dashboard
+components:
+  - name: Management Dashboard
+    version: 1.3.0
+    description: Management Dashboard App Component
+    file: dashboard.py
+    class: ManagementDashboardApp
+    wire: true
+    wirings:
+      - http_handler
+    config:
+      - model: dashboard:DashboardConfig

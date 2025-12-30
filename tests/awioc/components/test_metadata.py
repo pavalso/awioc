@@ -1,11 +1,16 @@
-import pytest
+from datetime import datetime
+
+from pydantic import BaseModel
 
 from src.awioc.components.metadata import (
     ComponentTypes,
     Internals,
     ComponentMetadata,
     AppMetadata,
+    RegistrationInfo,
+    metadata,
 )
+from src.awioc.config.base import Settings
 
 
 class TestComponentTypes:
@@ -145,3 +150,206 @@ class TestAppMetadata:
         assert "version" in metadata
         assert "description" in metadata
         assert "base_config" in metadata
+
+
+class TestRegistrationInfo:
+    """Tests for RegistrationInfo dataclass."""
+
+    def test_registration_info_str_minimal(self):
+        """Test __str__ with minimal fields."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0)
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "2024-01-15" in result
+
+    def test_registration_info_str_with_file(self):
+        """Test __str__ with file but no line number."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0),
+            file="/path/to/file.py"
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "from /path/to/file.py" in result
+
+    def test_registration_info_str_with_file_and_line(self):
+        """Test __str__ with file and line number."""
+        reg = RegistrationInfo(
+            registered_by="test_module",
+            registered_at=datetime(2024, 1, 15, 10, 30, 0),
+            file="/path/to/file.py",
+            line=42
+        )
+        result = str(reg)
+        assert "by 'test_module'" in result
+        assert "from /path/to/file.py:42" in result
+
+    def test_registration_info_str_format(self):
+        """Test __str__ returns properly formatted string."""
+        reg = RegistrationInfo(
+            registered_by="my_component",
+            registered_at=datetime(2024, 6, 20, 14, 0, 0),
+            file="component.py",
+            line=100
+        )
+        result = str(reg)
+        assert result.startswith("RegistrationInfo(")
+        assert result.endswith(")")
+
+
+class TestMetadataFunction:
+    """Tests for metadata() function."""
+
+    def test_metadata_minimal(self):
+        """Test metadata with minimal required fields."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test component"
+        )
+        assert meta["name"] == "test"
+        assert meta["version"] == "1.0.0"
+        assert meta["description"] == "Test component"
+        assert meta["wire"] is True
+        assert meta["wirings"] == set()
+        assert meta["requires"] == set()
+        assert meta["config"] == set()
+        assert meta["_internals"] is None
+
+    def test_metadata_with_wirings_list(self):
+        """Test metadata with wirings as a list (converts to set)."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            wirings=["module1", "module2"]
+        )
+        assert meta["wirings"] == {"module1", "module2"}
+        assert isinstance(meta["wirings"], set)
+
+    def test_metadata_with_requires_list(self):
+        """Test metadata with requires as a list (converts types to names)."""
+        # Component with metadata containing name
+        mock_component = type("MockComponent", (), {"__metadata__": {"name": "dep_component"}})()
+
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            requires=[mock_component]
+        )
+        # Component types are converted to their names
+        assert "dep_component" in meta["requires"]
+        assert isinstance(meta["requires"], set)
+
+    def test_metadata_with_requires_string_names(self):
+        """Test metadata with requires as string names directly."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            requires=["dep1", "dep2"]
+        )
+        assert "dep1" in meta["requires"]
+        assert "dep2" in meta["requires"]
+        assert isinstance(meta["requires"], set)
+
+    def test_metadata_with_single_config_model(self):
+        """Test metadata with a single config model (wraps in set)."""
+
+        class MyConfig(BaseModel):
+            value: str = "default"
+
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            config=MyConfig
+        )
+        assert MyConfig in meta["config"]
+        assert len(meta["config"]) == 1
+        assert isinstance(meta["config"], set)
+
+    def test_metadata_with_multiple_config_models(self):
+        """Test metadata with multiple config models as list."""
+
+        class Config1(BaseModel):
+            a: str = ""
+
+        class Config2(BaseModel):
+            b: int = 0
+
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            config=[Config1, Config2]
+        )
+        assert Config1 in meta["config"]
+        assert Config2 in meta["config"]
+        assert len(meta["config"]) == 2
+
+    def test_metadata_with_base_config(self):
+        """Test metadata with base_config (creates AppMetadata)."""
+        meta = metadata(
+            name="my_app",
+            version="1.0.0",
+            description="My App",
+            base_config=Settings
+        )
+        assert "base_config" in meta
+        assert meta["base_config"] == Settings
+
+    def test_metadata_with_wire_false(self):
+        """Test metadata with wire=False."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            wire=False
+        )
+        assert meta["wire"] is False
+
+    def test_metadata_with_extra_kwargs(self):
+        """Test metadata with additional kwargs."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            custom_field="custom_value"
+        )
+        assert meta["custom_field"] == "custom_value"
+
+    def test_metadata_wirings_none_becomes_empty_set(self):
+        """Test metadata with None wirings becomes empty set."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            wirings=None
+        )
+        assert meta["wirings"] == set()
+
+    def test_metadata_requires_none_becomes_empty_set(self):
+        """Test metadata with None requires becomes empty set."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            requires=None
+        )
+        assert meta["requires"] == set()
+
+    def test_metadata_config_none_becomes_empty_set(self):
+        """Test metadata with None config becomes empty set."""
+        meta = metadata(
+            name="test",
+            version="1.0.0",
+            description="Test",
+            config=None
+        )
+        assert meta["config"] == set()

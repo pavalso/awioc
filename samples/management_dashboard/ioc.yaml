@@ -1,0 +1,8 @@
+components:
+  app: dashboard:ManagementDashboardApp()
+dashboard:
+  host: 127.0.0.1
+  port: 8090
+  ws_port: 8091
+  monitor_interval: 0.25
+  log_buffer_size: 500

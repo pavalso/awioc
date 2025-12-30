@@ -1,41 +1,66 @@
-"""Entry point for running the IOC framework as a module (python -m ioc)."""
+"""Entry point for running the AWIOC framework as a module (python -m awioc)."""
 
 import argparse
 import asyncio
 import logging
-
-logger = logging.getLogger(__name__)
-
 import logging.config
-import os
-from dataclasses import dataclass
+import sys
 from pathlib import Path
 from typing import Optional
 
-from . import (
-    compile_ioc_app,
-    initialize_ioc_app,
-    initialize_components,
-    shutdown_components,
-    wait_for_components,
-)
+from .commands import CommandContext, get_registered_commands
 from .utils import expanded_path
 
+logger = logging.getLogger(__name__)
 
-@dataclass
-class CLIConfig:
-    """CLI-specific configuration for logging and IOC settings."""
-    logging_config: Optional[Path] = None
-    verbose: int = 0
-    config_path: Optional[Path] = None
-    context: Optional[str] = None
+# Available commands for help text
+AVAILABLE_COMMANDS = {
+    "run": "Start the AWIOC application (default)",
+    "init": "Initialize a new AWIOC project",
+    "add": "Add plugins or libraries to the project",
+    "remove": "Remove plugins or libraries from the project",
+    "info": "Show project information",
+    "config": "Manage project configuration",
+    "pot": "Manage shared component directories",
+    "generate": "Generate manifest.yaml from components",
+}
 
 
-def parse_args() -> CLIConfig:
-    """Parse command-line arguments using argparse."""
+def create_parser() -> argparse.ArgumentParser:
+    """Create the argument parser with subcommands."""
+    # Build epilog with available commands
+    epilog_lines = ["\nAvailable commands:"]
+    for cmd, desc in AVAILABLE_COMMANDS.items():
+        epilog_lines.append(f"  {cmd:12} {desc}")
+    epilog_lines.append("\nUse 'awioc <command> --help' for more information about a command.")
+
     parser = argparse.ArgumentParser(
-        description="Run the IOC framework application",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        prog="awioc",
+        description="AWIOC - Async Wired IOC Framework",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="\n".join(epilog_lines),
+        add_help=False,  # We handle --help manually to support command-specific help
+    )
+
+    parser.add_argument(
+        "-h", "--help",
+        action="store_true",
+        help="Show this help message and exit"
+    )
+
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="run",
+        metavar="COMMAND",
+        help="Command to execute (default: run)"
+    )
+
+    parser.add_argument(
+        "args",
+        nargs="*",
+        metavar="ARGS",
+        help="Command arguments"
     )
 
     parser.add_argument(
@@ -66,44 +91,40 @@ def parse_args() -> CLIConfig:
         help="Verbosity level: -v (INFO), -vv (DEBUG), -vvv (DEBUG + libs)"
     )
 
-    args, _ = parser.parse_known_args()
-
-    logging_config = None
-    if args.logging_config:
-        logging_config = expanded_path(args.logging_config)
-
-    config_path = None
-    if args.config_path:
-        config_path = expanded_path(args.config_path)
-
-    return CLIConfig(
-        logging_config=logging_config,
-        verbose=args.verbose,
-        config_path=config_path,
-        context=args.context
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version information"
     )
 
+    return parser
 
-def configure_logging(config: CLIConfig) -> None:
+
+def configure_logging(
+        verbose: int = 0,
+        logging_config: Optional[Path] = None
+) -> None:
     """Configure logging based on CLI arguments.
 
     Priority:
     1. logging_config (.ini file) if provided
     2. verbose level (-v, -vv, -vvv)
-    3. Default (INFO level, simple format)
+    3. Default (WARNING level for minimal output)
     """
-    if config.logging_config and config.logging_config.exists():
-        logging.config.fileConfig(config.logging_config)
+    if logging_config and logging_config.exists():
+        logging.config.fileConfig(logging_config)
         return
 
+    # For commands other than 'run', default to WARNING for cleaner output
     level_map = {
-        0: logging.INFO,
-        1: logging.DEBUG
+        0: logging.WARNING,
+        1: logging.INFO,
+        2: logging.DEBUG
     }
-    level = level_map.get(min(config.verbose, len(level_map)), logging.DEBUG)
+    level = level_map.get(min(verbose, 2), logging.DEBUG)
 
     format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    if config.verbose >= 2:
+    if verbose >= 2:
         format_str = "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
 
     logging.basicConfig(
@@ -112,60 +133,139 @@ def configure_logging(config: CLIConfig) -> None:
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    if config.verbose < 3:
+    if verbose < 3:
         for lib in ("asyncio", "urllib3", "httpcore", "httpx"):
             logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-async def run(cli_config: CLIConfig):
-    if cli_config.config_path:
-        os.environ["CONFIG_PATH"] = str(cli_config.config_path)
+def show_help(parser: argparse.ArgumentParser) -> int:
+    """Show help message."""
+    parser.print_help()
+    return 0
 
-    if cli_config.context:
-        os.environ["CONTEXT"] = cli_config.context
 
-    api = initialize_ioc_app()
-    app = api.provided_app()
-
-    compile_ioc_app(api)
-
+def show_version() -> int:
+    """Show version information."""
     try:
-        await initialize_components(app)
-
-        exceptions = await initialize_components(
-            *api.provided_libs(),
-            return_exceptions=True
-        )
-
-        if exceptions:
-            logger.error("Error during library initialization",
-                         exc_info=ExceptionGroup("Initialization Errors", exceptions))
-            return  # Abort initialization on library errors
-
-        exceptions = await initialize_components(
-            *api.provided_plugins(),
-            return_exceptions=True
-        )
-
-        if exceptions:
-            logger.error("Error during plugin initialization",
-                         exc_info=ExceptionGroup("Initialization Errors", exceptions))
-
-        await wait_for_components(app)
-    finally:
-        await shutdown_components(app)
+        from importlib.metadata import version
+        ver = version("awioc")
+    except Exception:
+        ver = "unknown"
+    print(f"awioc version {ver}")
+    return 0
 
 
-def main():
-    cli_config = parse_args()
+async def dispatch_command(
+        command_name: str,
+        ctx: CommandContext
+) -> int:
+    """Dispatch to the appropriate command handler.
 
-    configure_logging(cli_config)
+    Args:
+        command_name: Name of the command to execute.
+        ctx: Command context with arguments and options.
 
+    Returns:
+        Exit code from the command.
+    """
+    registered_commands = get_registered_commands()
+
+    if command_name not in registered_commands:
+        logger.error(f"Unknown command: {command_name}")
+        print(f"\nUnknown command: {command_name}")
+        print(f"Available commands: {', '.join(AVAILABLE_COMMANDS.keys())}")
+        print("Use 'awioc --help' for more information.")
+        return 1
+
+    # Instantiate and execute the command
+    command_class = registered_commands[command_name]
+    command = command_class()
+
+    return await command.execute(ctx)
+
+
+def show_command_help(command_name: str) -> int:
+    """Show help for a specific command."""
+    registered_commands = get_registered_commands()
+
+    if command_name not in registered_commands:
+        print(f"Unknown command: {command_name}")
+        print(f"Available commands: {', '.join(AVAILABLE_COMMANDS.keys())}")
+        return 1
+
+    command_class = registered_commands[command_name]
+    command = command_class()
+    print(command.help_text)
+    return 0
+
+
+def main() -> int:
+    """Main entry point for the CLI."""
+    parser = create_parser()
+
+    # Use parse_known_args to allow commands to have their own arguments
+    args, remaining = parser.parse_known_args()
+
+    # Handle --version flag
+    if args.version:
+        return show_version()
+
+    command_name = args.command
+
+    # Combine args.args and remaining arguments
+    command_args = (args.args or []) + remaining
+
+    # Check if --help or -h is requested for a specific command
+    help_requested = args.help or "-h" in command_args or "--help" in command_args
+
+    if help_requested:
+        # If no command specified or command is 'run' and help was explicit on main parser
+        if args.help and command_name == "run" and not args.args and not remaining:
+            # Show main help
+            return show_help(parser)
+        else:
+            # Show command-specific help
+            return show_command_help(command_name)
+
+    # Configure logging
+    logging_config = None
+    if args.logging_config:
+        logging_config = expanded_path(args.logging_config)
+
+    # For 'run' command, default to INFO level for better visibility
+    verbose = args.verbose
+    if command_name == "run" and verbose == 0:
+        verbose = 1
+
+    configure_logging(verbose=verbose, logging_config=logging_config)
+
+    # Build command context
+    config_path = None
+    if args.config_path:
+        config_path = str(expanded_path(args.config_path))
+
+    # Combine args.args and remaining arguments
+    command_args = (args.args or []) + remaining
+
+    ctx = CommandContext(
+        command=command_name,
+        args=command_args,
+        verbose=args.verbose,
+        config_path=config_path,
+        context=args.context,
+    )
+
+    # Execute the command
     try:
-        asyncio.run(run(cli_config))
+        exit_code = asyncio.run(dispatch_command(command_name, ctx))
+        return exit_code
     except KeyboardInterrupt:
-        ...
+        print("\nInterrupted")
+        return 130
+    except Exception:
+        logger.exception("Error executing command")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -6,31 +6,6 @@ from src.awioc.config.models import IOCBaseConfig
 from src.awioc.container import AppContainer, ContainerInterface
 
 
-class TestCreateContainer:
-    """Tests for create_container function."""
-
-    def test_create_container_returns_interface(self):
-        """Test create_container returns a ContainerInterface."""
-        from src.awioc.bootstrap import create_container
-        interface = create_container()
-
-        assert isinstance(interface, ContainerInterface)
-
-    def test_create_container_has_raw_container(self):
-        """Test create_container interface has a raw container."""
-        from src.awioc.bootstrap import create_container
-        interface = create_container()
-
-        assert interface.raw_container() is not None
-
-    def test_create_container_sets_api(self):
-        """Test create_container sets api provider."""
-        from src.awioc.bootstrap import create_container
-        interface = create_container()
-
-        assert interface.raw_container().api() is interface
-
-
 class TestBootstrapIntegration:
     """Integration tests for bootstrap functions."""
 

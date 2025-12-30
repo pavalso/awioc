@@ -1,0 +1,13 @@
+manifest_version: '1.0'
+name: http_server
+version: 1.0.0
+description: Auto-generated manifest for http_server
+components:
+  - name: Http File Server
+    version: 2.0.0
+    description: HTTP File Server with upload, download, and delete capabilities
+    file: http_server.py
+    class: HttpServerApp
+    wire: true
+    config:
+      - model: http_server:ServerConfig
